@@ -7,9 +7,11 @@ pub enum InstructionSet {
     AVX512,
 }
 
-const BIT_AVX2: u32 = 1 << 5;
-const BIT_AVX512F: u32 = 1 << 16;
-const BIT_AVX512BW: u32 = 1 << 30;
+// CPUID feature bit definitions
+// CPUID leaf 0x07, subleaf 0, EBX register
+const BIT_AVX2: u32 = 1 << 5;       // Bit 5: AVX2 (NOT in leaf 0x01!)
+const BIT_AVX512F: u32 = 1 << 16;   // Bit 16: AVX-512 Foundation
+const BIT_AVX512BW: u32 = 1 << 30;  // Bit 30: AVX-512 Byte and Word
 
 pub fn hardware_is_needlessly_disabled() -> bool {
     #[cfg(target_arch = "x86_64")]
@@ -34,14 +36,19 @@ pub fn hardware_instruction_set() -> InstructionSet {
     #[cfg(target_arch = "x86_64")]
     {
         unsafe {
+            // Query CPUID leaf 0x07 (Extended Features), subleaf 0
+            // This leaf contains AVX2 and AVX-512 feature bits
+            // Note: AVX (original) is in leaf 0x01, but AVX2 is in leaf 0x07!
             let mut cpu_info = [0u32; 4];
             cpuid::cpuid_count(0x07, 0, &mut cpu_info);
             
-            let ebx = cpu_info[1];
+            let ebx = cpu_info[1];  // EBX contains the feature flags
             
+            // Check for AVX-512 first (requires both Foundation and Byte/Word)
             if (ebx & BIT_AVX512F) != 0 && (ebx & BIT_AVX512BW) != 0 {
                 InstructionSet::AVX512
             } else if (ebx & BIT_AVX2) != 0 {
+                // AVX2 is in CPUID.07H:EBX[bit 5], not in CPUID.01H!
                 InstructionSet::AVX2
             } else {
                 InstructionSet::SSE
@@ -58,7 +65,6 @@ pub fn hardware_ram_speed(_configured: bool) -> u64 {
     #[cfg(target_os = "linux")]
     {
         use std::fs;
-        use std::path::PathBuf;
         
         let glob_pattern = "/sys/firmware/dmi/entries/17-*/raw";
         let entries = match glob::glob(glob_pattern) {
@@ -117,11 +123,12 @@ pub fn hardware_cpu_count() -> usize {
         let mut cpuset: cpu_set_t = unsafe { mem::zeroed() };
         let cpu_count = unsafe {
             if sched_getaffinity(0, mem::size_of::<cpu_set_t>(), &mut cpuset) == 0 {
+                // Use libc's CPU_COUNT macro equivalent
                 let mut count = 0;
-                for i in 0..(8 * mem::size_of::<cpu_set_t>()) {
-                    if (cpuset.__bits[i / 64] & (1u64 << (i % 64))) != 0 {
-                        count += 1;
-                    }
+                let bits_ptr = &cpuset as *const cpu_set_t as *const u64;
+                let num_u64s = mem::size_of::<cpu_set_t>() / 8;
+                for i in 0..num_u64s {
+                    count += (*bits_ptr.add(i)).count_ones() as usize;
                 }
                 count
             } else {

@@ -70,33 +70,31 @@ mod windows {
     }
 
     pub unsafe fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
-        // Windows doesn't have aligned_alloc in winapi, use libc or allocate manually
-        // For now, use regular malloc with alignment check
-        use winapi::um::heapapi::{GetProcessHeap, HeapAlloc};
-        use winapi::um::winnt::HEAP_ZERO_MEMORY;
+        // VirtualAlloc provides page-aligned allocations (minimum 4KB, allocation granularity 64KB)
+        // Since our alignment requirement is cpu_count * pagesize, VirtualAlloc's natural alignment suffices
+        use winapi::um::memoryapi::VirtualAlloc;
+        use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
         
-        let heap = GetProcessHeap();
-        if heap.is_null() {
-            return std::ptr::null_mut();
-        }
+        let _ = alignment;  // VirtualAlloc is inherently aligned to page boundaries
         
-        // Allocate extra space for alignment
-        let total_size = size + alignment;
-        let raw_ptr = HeapAlloc(heap, HEAP_ZERO_MEMORY, total_size) as *mut u8;
-        if raw_ptr.is_null() {
-            return std::ptr::null_mut();
-        }
-        
-        // Align the pointer
-        let offset = raw_ptr.align_offset(alignment);
-        raw_ptr.add(offset)
+        VirtualAlloc(
+            std::ptr::null_mut(),
+            size,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE,
+        ) as *mut u8
     }
 
     pub unsafe fn aligned_free(ptr: *mut u8) {
-        use winapi::um::heapapi::{GetProcessHeap, HeapFree};
-        let heap = GetProcessHeap();
-        if !heap.is_null() && !ptr.is_null() {
-            HeapFree(heap, 0, ptr as *mut _);
+        use winapi::um::memoryapi::VirtualFree;
+        use winapi::um::winnt::MEM_RELEASE;
+        
+        if !ptr.is_null() {
+            // VirtualFree with MEM_RELEASE requires the base address
+            // For page-aligned allocations, we need to free the original address
+            // Since we can't track the original with this API, we'll use a simpler approach:
+            // Just allocate naturally aligned memory from VirtualAlloc
+            VirtualFree(ptr as *mut _, 0, MEM_RELEASE);
         }
     }
 }
@@ -104,7 +102,7 @@ mod windows {
 #[cfg(not(windows))]
 mod unix {
     #[cfg(target_os = "linux")]
-    use libc::{sysinfo, sysinfo as sysinfo_struct};
+    use libc::sysinfo as sysinfo_struct;
 
     pub struct SysInfo {
         pub totalram: usize,
@@ -134,11 +132,12 @@ mod unix {
             totalhigh: 0,
             freehigh: 0,
             mem_unit: 0,
-            _f: [0; 20 - 2 * std::mem::size_of::<usize>() - std::mem::size_of::<u32>()],
+            pad: [0; 0],
+            __reserved: [0; 8],
         };
         
         unsafe {
-            sysinfo(&mut info);
+            libc::sysinfo(&mut info);
         }
         
         SysInfo {

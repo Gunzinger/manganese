@@ -4,9 +4,9 @@ use std::time::Instant;
 mod hardware;
 mod platform;
 mod simd_xorshift;
-mod tests;
 mod tests_avx2;
 mod tests_avx512;
+mod tests;
 
 use hardware::{hardware_cpu_count, hardware_instruction_set, hardware_is_needlessly_disabled, hardware_ram_speed, InstructionSet};
 use platform::{getpagesize, mlock, sysinfo, aligned_alloc, aligned_free};

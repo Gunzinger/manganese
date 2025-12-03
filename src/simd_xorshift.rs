@@ -96,7 +96,6 @@ pub unsafe fn avx512_xorshift128plus_init(key1: u64, key2: u64, key: &mut Avx512
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 pub unsafe fn avx512_xorshift128plus(key: &mut Avx512Xorshift128PlusKey) -> __m512i {
-    let _s1 = key.part1;
     let s0 = key.part2;
     key.part1 = key.part2;
     

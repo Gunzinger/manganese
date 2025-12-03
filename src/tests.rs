@@ -1,6 +1,8 @@
 use std::sync::atomic::AtomicU64;
 
 use crate::hardware::InstructionSet;
+use crate::tests_avx2::*;
+use crate::tests_avx512::*;
 
 pub struct Test {
     pub name: &'static str,
@@ -60,12 +62,4 @@ pub fn tests_init(cpus: usize, errors: &'static AtomicU64, isa: InstructionSet) 
         _ => vec![],
     }
 }
-
-// Module declarations - files are in src/ directory
-mod tests_avx2;
-mod tests_avx512;
-
-// Re-export init functions
-use tests_avx2::avx2_tests_init;
-use tests_avx512::avx512_tests_init;
 

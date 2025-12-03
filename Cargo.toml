@@ -18,7 +18,7 @@ num_cpus = "1.16"
 glob = "0.3"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winbase", "sysinfoapi", "memoryapi", "processthreadsapi", "handleapi", "heapapi", "winnt"] }
+winapi = { version = "0.3", features = ["winbase", "sysinfoapi", "memoryapi", "processthreadsapi", "handleapi", "winnt"] }
 
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"

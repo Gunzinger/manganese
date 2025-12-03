@@ -66,10 +66,11 @@ unsafe fn get_all_down(mem: *const u8, size: usize, expected: __m512i) {
         let mem_ptr = mem_usize as *const u8;
         let start = i * chunk_size;
         let end = start + chunk_size;
-        for j in (start..end).rev().step_by(64) {
-            if j + 64 <= end {
-                get(mem_ptr, j, expected);
-            }
+        // Iterate from end-64 down to start, stepping by 64
+        let mut j = ((end - start) / 64) * 64 + start;  // Last aligned position
+        while j >= start + 64 {
+            j -= 64;
+            get(mem_ptr, j, expected);
         }
     });
 }
@@ -104,10 +105,11 @@ unsafe fn set_all_down(mem: *mut u8, size: usize, val: __m512i) {
         let mem_ptr = mem_usize as *mut u8;
         let start = i * chunk_size;
         let end = start + chunk_size;
-        for j in (start..end).rev().step_by(64) {
-            if j + 64 <= end {
-                set(mem_ptr, j, val);
-            }
+        // Iterate from end-64 down to start, stepping by 64
+        let mut j = ((end - start) / 64) * 64 + start;  // Last aligned position
+        while j >= start + 64 {
+            j -= 64;
+            set(mem_ptr, j, val);
         }
     });
 }
