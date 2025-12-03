@@ -7,6 +7,8 @@ set(CMAKE_C_EXTENSIONS ON)
 
 # Build options
 option(BUILD_WITH_OPENBLAS "Build with OpenBLAS support" ON)
+option(BUILD_V3_TARGET "Build x86-64-v3 (AVX2) compatible binary" ON)
+option(BUILD_V4_TARGET "Build x86-64-v4 (AVX512) optimized binary" ON)
 
 # Platform detection
 if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -17,13 +19,13 @@ else()
     add_definitions(-DPLATFORM_UNIX)
 endif()
 
-# Compiler flags
+# Base compiler flags
 set(CMAKE_C_FLAGS_RELEASE "-O3 -flto")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -masm=intel -fopenmp -std=gnu2x")
+set(CMAKE_C_FLAGS_BASE "-fopenmp" "-std=gnu2x")
 
 # AVX512 flags
-set(AVX512_FLAGS "-mavx512f -mavx512bw -mrdrnd")
-set(AVX2_FLAGS "-mavx2 -mrdrnd")
+set(AVX512_FLAGS "-mavx512f" "-mavx512bw" "-mrdrnd")
+set(AVX2_FLAGS "-mavx2" "-mrdrnd")
 
 # Include directories
 include_directories(
@@ -91,66 +93,106 @@ endif()
 set(TESTS_512_SOURCE tests-512.c)
 set(TESTS_256_SOURCE tests-256.c)
 
-# SIMDxorshift library - build with AVX512
-add_library(simdxorshift128plus_obj OBJECT 
-    SIMDxorshift/src/simdxorshift128plus.c
-)
-target_compile_options(simdxorshift128plus_obj PRIVATE "-mavx512f")
-target_include_directories(simdxorshift128plus_obj PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
-
-# Build tests-512.o with AVX512
-add_library(tests_512_obj OBJECT ${TESTS_512_SOURCE})
-target_compile_options(tests_512_obj PRIVATE ${AVX512_FLAGS})
-target_include_directories(tests_512_obj PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
-if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
-    target_include_directories(tests_512_obj PRIVATE ${CMAKE_SOURCE_DIR}/OpenBLAS)
-    target_compile_definitions(tests_512_obj PRIVATE HAVE_OPENBLAS)
-endif()
-
-# Build tests-256.o with AVX2
-add_library(tests_256_obj OBJECT ${TESTS_256_SOURCE})
-target_compile_options(tests_256_obj PRIVATE ${AVX2_FLAGS})
-target_include_directories(tests_256_obj PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
-if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
-    target_include_directories(tests_256_obj PRIVATE ${CMAKE_SOURCE_DIR}/OpenBLAS)
-    target_compile_definitions(tests_256_obj PRIVATE HAVE_OPENBLAS)
-endif()
-
-# Main executable
-add_executable(manganese ${MANGANESE_SOURCES}
-    $<TARGET_OBJECTS:tests_512_obj>
-    $<TARGET_OBJECTS:tests_256_obj>
-    $<TARGET_OBJECTS:simdxorshift128plus_obj>
-)
-
-target_link_libraries(manganese 
-    OpenMP::OpenMP_C
-)
-
-if(NOT PLATFORM_WINDOWS)
-    if(M_LIB)
-        target_link_libraries(manganese ${M_LIB})
-    endif()
-    if(PTHREAD_LIB)
-        target_link_libraries(manganese ${PTHREAD_LIB})
-    endif()
-endif()
-
-if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
-    target_link_libraries(manganese ${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a)
-endif()
-
-# Windows-specific settings
-if(PLATFORM_WINDOWS)
-    set_target_properties(manganese PROPERTIES
-        OUTPUT_NAME "manganese"
-        SUFFIX ".exe"
+# Function to create a build variant
+function(create_build_variant variant_name arch_flag masm_flag)
+    # SIMDxorshift library - always build with AVX512 (runtime detection will handle it)
+    add_library(simdxorshift128plus_obj_${variant_name} OBJECT 
+        SIMDxorshift/src/simdxorshift128plus.c
     )
-    target_link_options(manganese PRIVATE -static)
+    target_compile_options(simdxorshift128plus_obj_${variant_name} PRIVATE "-mavx512f")
+    target_include_directories(simdxorshift128plus_obj_${variant_name} PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
+
+    # Build tests-512.o with AVX512
+    add_library(tests_512_obj_${variant_name} OBJECT ${TESTS_512_SOURCE})
+    target_compile_options(tests_512_obj_${variant_name} PRIVATE ${AVX512_FLAGS})
+    target_include_directories(tests_512_obj_${variant_name} PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
+    if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+        target_include_directories(tests_512_obj_${variant_name} PRIVATE ${CMAKE_SOURCE_DIR}/OpenBLAS)
+        target_compile_definitions(tests_512_obj_${variant_name} PRIVATE HAVE_OPENBLAS)
+    endif()
+
+    # Build tests-256.o with AVX2
+    add_library(tests_256_obj_${variant_name} OBJECT ${TESTS_256_SOURCE})
+    target_compile_options(tests_256_obj_${variant_name} PRIVATE ${AVX2_FLAGS})
+    target_include_directories(tests_256_obj_${variant_name} PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
+    if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+        target_include_directories(tests_256_obj_${variant_name} PRIVATE ${CMAKE_SOURCE_DIR}/OpenBLAS)
+        target_compile_definitions(tests_256_obj_${variant_name} PRIVATE HAVE_OPENBLAS)
+    endif()
+
+    # Main executable
+    add_executable(manganese${variant_name} ${MANGANESE_SOURCES}
+        $<TARGET_OBJECTS:tests_512_obj_${variant_name}>
+        $<TARGET_OBJECTS:tests_256_obj_${variant_name}>
+        $<TARGET_OBJECTS:simdxorshift128plus_obj_${variant_name}>
+    )
+
+    # Set architecture-specific flags for main sources
+    target_compile_options(manganese${variant_name} PRIVATE 
+        ${CMAKE_C_FLAGS_BASE}
+        ${arch_flag}
+    )
+    if(masm_flag)
+        target_compile_options(manganese${variant_name} PRIVATE ${masm_flag})
+    endif()
+
+    target_link_libraries(manganese${variant_name} 
+        OpenMP::OpenMP_C
+    )
+
+    if(NOT PLATFORM_WINDOWS)
+        if(M_LIB)
+            target_link_libraries(manganese${variant_name} ${M_LIB})
+        endif()
+        if(PTHREAD_LIB)
+            target_link_libraries(manganese${variant_name} ${PTHREAD_LIB})
+        endif()
+    endif()
+
+    if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+        target_link_libraries(manganese${variant_name} ${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a)
+    endif()
+
+    # Windows-specific settings
+    if(PLATFORM_WINDOWS)
+        set_target_properties(manganese${variant_name} PROPERTIES
+            OUTPUT_NAME "manganese${variant_name}"
+            SUFFIX ".exe"
+        )
+        target_link_options(manganese${variant_name} PRIVATE -static)
+    endif()
+
+    # Set output directory
+    set_target_properties(manganese${variant_name} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
+endfunction()
+
+# Build x86-64-v3 variant (AVX2 baseline, works on AVX2 CPUs, uses AVX512 if available)
+if(BUILD_V3_TARGET)
+    if(NOT CMAKE_CROSSCOMPILING AND NOT PLATFORM_WINDOWS)
+        create_build_variant("-avx2" "-march=x86-64-v3" "-masm=intel")
+    elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        create_build_variant("-avx2" "-march=x86-64-v3" "")
+    else()
+        create_build_variant("-avx2" "-march=x86-64-v3" "")
+    endif()
 endif()
 
-# Set output directory
-set_target_properties(manganese PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
-)
+# Build x86-64-v4 variant (AVX512 optimized, requires AVX512 CPU)
+if(BUILD_V4_TARGET)
+    if(NOT CMAKE_CROSSCOMPILING AND NOT PLATFORM_WINDOWS)
+        create_build_variant("-avx512" "-march=x86-64-v4" "-masm=intel")
+    elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        create_build_variant("-avx512" "-march=x86-64-v4" "")
+    else()
+        create_build_variant("-avx512" "-march=x86-64-v4" "")
+    endif()
+endif()
 
+# Default target (for backward compatibility, use v3 if available, otherwise v4)
+if(BUILD_V3_TARGET)
+    add_custom_target(manganese ALL DEPENDS manganese-avx2)
+elseif(BUILD_V4_TARGET)
+    add_custom_target(manganese ALL DEPENDS manganese-avx512)
+endif()

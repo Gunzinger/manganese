@@ -40,17 +40,19 @@ jobs:
       
       - name: Configure CMake
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_V3_TARGET=ON -DBUILD_V4_TARGET=ON
 
-      - name: Build binary
+      - name: Build binaries
         run: |
           cmake --build build -j$(nproc)
       
-      - name: Upload Linux binary
+      - name: Upload Linux binaries
         uses: actions/upload-artifact@v4
         with:
           name: manganese-linux
-          path: build/manganese
+          path: |
+            build/manganese-avx2
+            build/manganese-avx512
           retention-days: 7
 
   build-windows:
@@ -94,16 +96,20 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DBUILD_V3_TARGET=ON \
+            -DBUILD_V4_TARGET=ON
 
-      - name: Build Windows binary
+      - name: Build Windows binaries
         run: |
           cmake --build build-windows -j$(nproc)
       
-      - name: Upload Windows binary
+      - name: Upload Windows binaries
         uses: actions/upload-artifact@v4
         with:
           name: manganese-windows
-          path: build-windows/manganese.exe
+          path: |
+            build-windows/manganese-avx2.exe
+            build-windows/manganese-avx512.exe
           retention-days: 7
           if-no-files-found: warn

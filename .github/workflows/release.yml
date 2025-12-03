@@ -64,21 +64,23 @@ jobs:
       
       - name: Configure CMake
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_V3_TARGET=ON -DBUILD_V4_TARGET=ON
 
-      - name: Build binary
+      - name: Build binaries
         run: |
           cmake --build build -j$(nproc)
       
-      - name: Strip binary
+      - name: Strip binaries
         run: |
-          strip build/manganese
+          strip build/manganese-avx2 build/manganese-avx512
       
-      - name: Upload Linux binary
+      - name: Upload Linux binaries
         uses: actions/upload-artifact@v4
         with:
           name: manganese-linux-${{ needs.detect-release.outputs.version }}
-          path: build/manganese
+          path: |
+            build/manganese-avx2
+            build/manganese-avx512
           retention-days: 90
 
   build-windows-release:
@@ -124,21 +126,25 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DBUILD_V3_TARGET=ON \
+            -DBUILD_V4_TARGET=ON
 
-      - name: Build Windows binary
+      - name: Build Windows binaries
         run: |
           cmake --build build-windows -j$(nproc)
       
-      - name: Strip binary
+      - name: Strip binaries
         run: |
-          x86_64-w64-mingw32-strip build-windows/manganese.exe
+          x86_64-w64-mingw32-strip build-windows/manganese-avx2.exe build-windows/manganese-avx512.exe
       
-      - name: Upload Windows binary
+      - name: Upload Windows binaries
         uses: actions/upload-artifact@v4
         with:
           name: manganese-windows-${{ needs.detect-release.outputs.version }}
-          path: build-windows/manganese.exe
+          path: |
+            build-windows/manganese-avx2.exe
+            build-windows/manganese-avx512.exe
           retention-days: 90
           if-no-files-found: warn
 
@@ -171,22 +177,35 @@ jobs:
             ## Manganese v${{ needs.detect-release.outputs.version }}
             
             ### Downloads
-            - **Linux**: `manganese` (stripped binary)
-            - **Windows**: `manganese.exe` (stripped binary)
+            - **Linux**: 
+              - `manganese-avx2` - AVX2 compatible (works on AVX2 CPUs, uses AVX512 if available)
+              - `manganese-avx512` - AVX512 optimized (requires AVX512 CPU)
+            - **Windows**: 
+              - `manganese-avx2.exe` - AVX2 compatible (works on AVX2 CPUs, uses AVX512 if available)
+              - `manganese-avx512.exe` - AVX512 optimized (requires AVX512 CPU)
             
             ### Usage
-            Download the appropriate binary for your platform and make it executable:
+            Download the appropriate binary for your platform and CPU:
             ```bash
-            # Linux
-            chmod +x manganese
-            ./manganese 10%
+            # Linux - AVX2 compatible (recommended for compatibility)
+            chmod +x manganese-avx2
+            ./manganese-avx2 10%
             
-            # Windows
-            manganese.exe 10%
+            # Linux - AVX512 optimized (faster, requires AVX512 CPU)
+            chmod +x manganese-avx512
+            ./manganese-avx512 10%
+            
+            # Windows - AVX2 compatible
+            manganese-avx2.exe 10%
+            
+            # Windows - AVX512 optimized
+            manganese-avx512.exe 10%
             ```
           files: |
-            artifacts/manganese
-            artifacts/manganese.exe
+            artifacts/manganese-avx2
+            artifacts/manganese-avx512
+            artifacts/manganese-avx2.exe
+            artifacts/manganese-avx512.exe
           draft: false
           prerelease: false
         env:
