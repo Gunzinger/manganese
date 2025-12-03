@@ -1,18 +1,18 @@
 # Manganese
 
-A memory tester for the modern age. Manganese utilizes modern CPU features to
+A high-performance memory tester written in Rust. Manganese utilizes modern CPU features to
 run significantly faster than traditional memory tests, letting you run more
 passes in less time.
 
 ## Features
 
-- Supports as many CPU cores as OpenMP does, and automatically uses all of them.
-- Supports pure AVX2 and AVX-512 codepaths with runtime feature detection
-- Uses non-temporal stores to bypass the CPU cache without additional performance penalties
-- Prints per-error warnings, total error counts, and average bandwidth used after each loop
-- **Cross-platform support**: Linux and Windows (via mman-win32)
-- **Comprehensive DRAM testing**: Includes walking-1, walking-0, checkerboard, address line tests, anti-patterns, and inverse data patterns
-- **Optional OpenBLAS**: Builds work with or without OpenBLAS (SGEMM test skipped if unavailable)
+- **Rust rewrite**: Memory-safe implementation using Rust's SIMD intrinsics
+- **Rayon parallelism**: Automatic work-stealing parallelism across all CPU cores
+- **AVX2 and AVX-512**: Runtime feature detection with optimized code paths
+- **Cross-platform**: Native Linux and Windows support without external dependencies
+- **Non-temporal stores**: Bypasses CPU cache for maximum memory bandwidth
+- **Comprehensive DRAM testing**: Walking-1, walking-0, checkerboard, address line tests, anti-patterns, and inverse data patterns
+- **Static binaries**: Self-contained executables with no runtime dependencies
 
 ## Performance
 
@@ -28,99 +28,81 @@ All benchmarks conducted on an i5 12600k paired with dual-channel DDR5 at 5400MT
 
 ## Requirements
 
-### Linux
-- Linux 5.x or newer
-- C11 Compiler w/ GNU extensions (GCC 10+ recommended)
-- OpenMP development libraries
-- A CPU with AVX2 (slower) or AVX-512F and AVX-512BW (faster)
-
-### Windows
-- Windows 10/11 (64-bit)
-- MinGW-w64 with GCC 10+ (via MSYS2 recommended)
-- OpenMP support
-- A CPU with AVX2 (AVX-512 support coming soon)
+- A CPU with AVX2 (x86-64-v3, 2013+) or AVX-512 (x86-64-v4, 2017+)
+- Linux 5.x+ or Windows 10/11 (64-bit)
+- Sufficient RAM to lock memory for testing
+- Administrator/root privileges for memory locking
 
 ## Installation & Usage
 
 ### Quick Start (Pre-built Binaries)
 
 Download the latest release from the [Releases page](https://github.com/Gunzinger/manganese/releases):
-- **Linux**: Download `manganese`, make it executable: `chmod +x manganese`
-- **Windows**: Download `manganese.exe`
+
+**Linux** (static MUSL binaries):
+- `manganese-*-linux-avx2` - AVX2 compatible (x86-64-v3)
+- `manganese-*-linux-x86-64-v4` - AVX-512 optimized (x86-64-v4)
+
+**Windows**:
+- `manganese-*-windows-avx2.exe` - AVX2 compatible (x86-64-v3)
+- `manganese-*-windows-x86-64-v4.exe` - AVX-512 optimized (x86-64-v4)
 
 Then run:
 ```bash
-# Linux
-./manganese 10%
+# Linux - AVX2 compatible (recommended)
+chmod +x manganese-*-linux-avx2
+sudo ./manganese-*-linux-avx2 10%
 
-# Windows
-manganese.exe 10%
+# Linux - AVX-512 optimized
+chmod +x manganese-*-linux-x86-64-v4
+sudo ./manganese-*-linux-x86-64-v4 10%
+
+# Windows (Run as Administrator)
+manganese-*-windows-avx2.exe 10%
 ```
 
 ### Building from Source
 
-#### Linux
+#### Prerequisites
 
 ```bash
-# Install prerequisites (Ubuntu/Debian)
-sudo apt install make gcc libomp-dev
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Clone repository and initialize submodules
+# Add targets for cross-compilation
+rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu
+```
+
+#### Build Commands
+
+```bash
+# Clone repository
 git clone https://github.com/Gunzinger/manganese.git
 cd manganese
-git submodule update --init --recursive
 
-# Build (OpenBLAS is optional but recommended)
-make
+# Build AVX2 version (x86-64-v3, recommended for compatibility)
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --target x86_64-unknown-linux-musl
+
+# Build AVX-512 version (x86-64-v4, optimized for newer CPUs)
+RUSTFLAGS="-C target-cpu=x86-64-v4" cargo build --release --target x86_64-unknown-linux-musl
 
 # Run tests
-./manganese 10%
-
-# As memory must be locked, running might require ulimit adjustments or running as root
-sudo ./manganese 10%
+sudo ./target/x86_64-unknown-linux-musl/release/manganese 10%
 
 # Test specific CPU cores with taskset
-sudo taskset -c 0-7 ./manganese 10%
+sudo taskset -c 0-7 ./target/x86_64-unknown-linux-musl/release/manganese 10%
 ```
 
-**Note**: Building OpenBLAS takes a significant amount of time. The build will work without it, but the SGEMM test will be skipped. OpenBLAS builds are cached in CI/CD for faster subsequent builds.
-
-#### Windows
+#### Windows Cross-Compilation (from Linux)
 
 ```bash
-# Install MSYS2 and MinGW-w64
-# Download from: https://www.msys2.org/
+# Install MinGW toolchain (Ubuntu/Debian)
+sudo apt-get install gcc-mingw-w64-x86-64-win32
 
-# Install required packages in MSYS2 terminal
-pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-openmp make
+# Build for Windows
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --target x86_64-pc-windows-gnu
 
-# Clone repository and initialize submodules
-git clone https://github.com/Gunzinger/manganese.git
-cd manganese
-git submodule update --init --recursive
-
-# Build using Windows Makefile
-make -f Makefile.windows
-
-# Run tests (may require Administrator privileges for memory locking)
-manganese.exe 10%
-```
-
-### Submodules
-
-This project uses Git submodules for dependencies:
-- **SIMDxorshift**: Fast AVX2/AVX-512 random number generator
-- **OpenBLAS**: Optimized BLAS library (optional, for SGEMM test)
-- **mman-win32**: Windows memory mapping compatibility layer
-
-Always initialize submodules when cloning:
-```bash
-git submodule update --init --recursive
-```
-
-Or clone with submodules in one command:
-```bash
-git clone --recursive https://github.com/Gunzinger/manganese.git
+# Binary will be at: target/x86_64-pc-windows-gnu/release/manganese.exe
 ```
 
 ## Test Patterns
@@ -207,6 +189,17 @@ git push --tags
 
 This triggers automatic builds for both Linux and Windows, with binaries uploaded to GitHub Releases.
 
+## Architecture Support
+
+Manganese binaries are built for two CPU microarchitecture levels:
+
+- **x86-64-v3 (AVX2)**: Compatible with Intel Haswell (2013+), AMD Excavator (2015+) and newer
+  - Features: AVX2, BMI1, BMI2, F16C, FMA, LZCNT, MOVBE, OSXSAVE
+- **x86-64-v4 (AVX-512)**: Optimized for Intel Skylake-X (2017+), AMD Zen 4 (2022+) and newer
+  - Features: AVX-512F, AVX-512BW, AVX-512CD, AVX-512DQ, AVX-512VL
+
+Choose the AVX2 version for maximum compatibility, or the AVX-512 version for ~15-20% better performance on supported CPUs.
+
 ## Troubleshooting
 
 ### Linux: "can't lock any memory"
@@ -218,35 +211,14 @@ ulimit -l unlimited
 
 Or run as root:
 ```bash
-sudo ./manganese 10%
+sudo ./manganese-*-linux-* 10%
 ```
 
 ### Windows: Memory locking fails
 Run as Administrator to allow memory locking:
 ```bash
 # Right-click Command Prompt/PowerShell -> Run as Administrator
-manganese.exe 10%
-```
-
-### Build fails without OpenBLAS
-OpenBLAS is optional. The build will work without it, but the SGEMM test will be skipped. To build without OpenBLAS:
-```bash
-# Linux
-make  # Will continue even if OpenBLAS build fails
-
-# Windows
-make -f Makefile.windows  # OpenBLAS not required
-```
-
-### Submodule issues
-If submodules aren't initialized:
-```bash
-git submodule update --init --recursive
-```
-
-If submodules are out of date:
-```bash
-git submodule update --remote --recursive
+manganese-*-windows-*.exe 10%
 ```
 
 ## Contributing
@@ -257,8 +229,15 @@ Contributions are welcome! Please ensure:
 - Submodules are properly initialized
 - OpenBLAS is optional (don't break builds without it)
 
+## Implementation Notes
+
+This is a complete Rust rewrite of the original C implementation:
+- **Parallelism**: Uses Rayon instead of OpenMP
+- **SIMD**: Native Rust intrinsics (`std::arch::x86_64`) instead of SIMDxorshift C library
+- **Platform APIs**: Native `libc` and `winapi` crates instead of mman-win32
+- **Memory Safety**: Unsafe blocks only where necessary (SIMD operations, raw memory access)
+
 ## Credits
 
-- Thanks to Daniel Lemire for his AVX2 and AVX-512 random number generator (SIMDxorshift)
-- Thanks to the OpenBLAS project for optimized BLAS routines
-- Thanks to witwall for mman-win32 Windows compatibility layer
+- Original C implementation concept and test patterns
+- Inspired by Daniel Lemire's SIMDxorshift for RNG algorithm design

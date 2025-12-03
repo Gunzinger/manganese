@@ -2,211 +2,143 @@ name: Release
 
 on:
   push:
-    branches: [ master, main ]
     tags:
       - 'v*.*.*'
 
 jobs:
-  detect-release:
+  create_release:
     runs-on: ubuntu-latest
     outputs:
-      is-release: ${{ steps.check.outputs.is-release }}
-      version: ${{ steps.check.outputs.version }}
+      release_id: ${{ steps.gh_release.outputs.id }}
+      release_upload_url: ${{ steps.gh_release.outputs.upload_url }}
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
-      - name: Check if this is a release
-        id: check
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${{ github.ref_name }}"
-            echo "is-release=true" >> $GITHUB_OUTPUT
-            echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
-          else
-            echo "is-release=false" >> $GITHUB_OUTPUT
-            echo "version=" >> $GITHUB_OUTPUT
-          fi
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  build-linux-release:
-    needs: detect-release
-    if: needs.detect-release.outputs.is-release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-      
-      - name: Install dependencies
+      - name: Extract version from tag
+        id: version
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libomp-dev cmake
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - name: Get OpenBLAS submodule commit
-        id: openblas-commit
-        run: |
-          echo "OPENBLAS_HASH=$(git submodule status OpenBLAS | awk '{print $1}')" >> $GITHUB_ENV
-
-      - name: Cache OpenBLAS
-        id: cache-openblas-linux
-        uses: actions/cache@v4
+      - name: Create GitHub Release
+        id: gh_release
+        uses: softprops/action-gh-release@v2
         with:
-          path: OpenBLAS/libopenblas.a
-          key: openblas-${{ runner.os }}-${{ env.OPENBLAS_HASH }}
-      
-      - name: Build OpenBLAS (if not cached)
-        if: steps.cache-openblas-linux.outputs.cache-hit != 'true'
-        run: |
-          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 -j$(nproc)
-        continue-on-error: true
-      
-      - name: Configure CMake
-        run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_V3_TARGET=ON -DBUILD_V4_TARGET=ON
-
-      - name: Build binaries
-        run: |
-          cmake --build build -j$(nproc)
-      
-      - name: Strip binaries
-        run: |
-          strip build/manganese-avx2 build/manganese-avx512
-      
-      - name: Upload Linux binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: manganese-linux-${{ needs.detect-release.outputs.version }}
-          path: |
-            build/manganese-avx2
-            build/manganese-avx512
-          retention-days: 90
-
-  build-windows-release:
-    needs: detect-release
-    if: needs.detect-release.outputs.is-release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-      
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake mingw-w64
-
-      - name: Get OpenBLAS submodule commit
-        id: openblas-commit
-        run: |
-          echo "OPENBLAS_HASH=$(git submodule status OpenBLAS | awk '{print $1}')" >> $GITHUB_ENV
-
-      - name: Cache OpenBLAS Windows
-        id: cache-openblas-win-rel
-        uses: actions/cache@v4
-        with:
-          path: OpenBLAS/libopenblas.a
-          key: openblas-windows-cross-${{ env.OPENBLAS_HASH }}
-      
-      - name: Build OpenBLAS for Windows (if not cached)
-        if: steps.cache-openblas-win-rel.outputs.cache-hit != 'true'
-        run: |
-          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 CC=x86_64-w64-mingw32-gcc FC=x86_64-w64-mingw32-gfortran -j$(nproc)
-        continue-on-error: true
-      
-      - name: Configure CMake for Windows cross-compilation
-        run: |
-          cmake -B build-windows -S . \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SYSTEM_NAME=Windows \
-            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
-            -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
-            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-            -DBUILD_V3_TARGET=ON \
-            -DBUILD_V4_TARGET=ON
-
-      - name: Build Windows binaries
-        run: |
-          cmake --build build-windows -j$(nproc)
-      
-      - name: Strip binaries
-        run: |
-          x86_64-w64-mingw32-strip build-windows/manganese-avx2.exe build-windows/manganese-avx512.exe
-      
-      - name: Upload Windows binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: manganese-windows-${{ needs.detect-release.outputs.version }}
-          path: |
-            build-windows/manganese-avx2.exe
-            build-windows/manganese-avx512.exe
-          retention-days: 90
-          if-no-files-found: warn
-
-  create-release:
-    needs: [detect-release, build-linux-release, build-windows-release]
-    if: needs.detect-release.outputs.is-release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: manganese-linux-${{ needs.detect-release.outputs.version }}
-          path: ./artifacts
-      
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: manganese-windows-${{ needs.detect-release.outputs.version }}
-          path: ./artifacts
-          continue-on-error: true
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.detect-release.outputs.version }}
-          name: Release v${{ needs.detect-release.outputs.version }}
+          name: Release v${{ env.VERSION }}
+          tag_name: ${{ github.ref_name }}
           body: |
-            ## Manganese v${{ needs.detect-release.outputs.version }}
+            ## Manganese v${{ env.VERSION }} - Rust Edition
+            
+            A high-performance memory tester written in Rust with AVX2 and AVX-512 SIMD support.
             
             ### Downloads
-            - **Linux**: 
-              - `manganese-avx2` - AVX2 compatible (works on AVX2 CPUs, uses AVX512 if available)
-              - `manganese-avx512` - AVX512 optimized (requires AVX512 CPU)
-            - **Windows**: 
-              - `manganese-avx2.exe` - AVX2 compatible (works on AVX2 CPUs, uses AVX512 if available)
-              - `manganese-avx512.exe` - AVX512 optimized (requires AVX512 CPU)
+            
+            #### Linux (static MUSL binaries)
+            - `manganese-v${{ env.VERSION }}-linux-avx2` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
+            - `manganese-v${{ env.VERSION }}-linux-x86-64-v4` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
+            
+            #### Windows
+            - `manganese-v${{ env.VERSION }}-windows-avx2.exe` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
+            - `manganese-v${{ env.VERSION }}-windows-x86-64-v4.exe` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
             
             ### Usage
-            Download the appropriate binary for your platform and CPU:
             ```bash
-            # Linux - AVX2 compatible (recommended for compatibility)
-            chmod +x manganese-avx2
-            ./manganese-avx2 10%
+            # Linux
+            chmod +x manganese-*-linux-*
+            sudo ./manganese-*-linux-* 10%
             
-            # Linux - AVX512 optimized (faster, requires AVX512 CPU)
-            chmod +x manganese-avx512
-            ./manganese-avx512 10%
-            
-            # Windows - AVX2 compatible
-            manganese-avx2.exe 10%
-            
-            # Windows - AVX512 optimized
-            manganese-avx512.exe 10%
+            # Windows (Run as Administrator)
+            manganese-*-windows-*.exe 10%
             ```
-          files: |
-            artifacts/manganese-avx2
-            artifacts/manganese-avx512
-            artifacts/manganese-avx2.exe
-            artifacts/manganese-avx512.exe
+            
+            ### CPU Target Information
+            - **x86-64-v3 (AVX2)**: Compatible with Intel Haswell (2013+), AMD Excavator (2015+) and newer
+            - **x86-64-v4 (AVX-512)**: Optimized for Intel Skylake-X (2017+), AMD Zen 4 (2022+) and newer
+            
+            ### Changes from C Version
+            - Rewritten in Rust for memory safety
+            - Uses Rayon for parallelism instead of OpenMP
+            - Native Rust SIMD intrinsics instead of SIMDxorshift C library
+            - No external dependencies (self-contained static binaries)
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build_binaries:
+    needs: create_release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cpu_target: [x86-64-v3, x86-64-v4]
+        os_target: [x86_64-unknown-linux-musl, x86_64-pc-windows-gnu]
+    name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
+    env:
+      RUSTFLAGS: "-C target-cpu=${{ matrix.cpu_target }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        run: |
+          echo "VERSION=${{ needs.create_release.outputs.version }}" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32 upx-ucl
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Update Cargo.toml version
+        run: |
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" Cargo.toml
+          head -n 10 Cargo.toml
+
+      - name: Build binary
+        run: |
+          TARGET="${{ matrix.os_target }}"
+          cargo build --release --target ${TARGET}
+
+      - name: Prepare release binaries
+        shell: bash
+        run: |
+          TARGET="${{ matrix.os_target }}"
+          CPU="${{ matrix.cpu_target }}"
+          VERSION="${{ needs.create_release.outputs.version }}"
+          mkdir -p current_release
+          
+          if [[ "${TARGET}" == *"linux"* ]]; then
+            if [[ "${CPU}" == "x86-64-v3" ]]; then
+              BIN_NAME="manganese-v${VERSION}-linux-avx2"
+            else
+              BIN_NAME="manganese-v${VERSION}-linux-${CPU}"
+            fi
+            cp target/${TARGET}/release/manganese current_release/${BIN_NAME}
+            strip current_release/${BIN_NAME}
+            upx --best --ultra-brute current_release/${BIN_NAME}
+            shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
+          else
+            if [[ "${CPU}" == "x86-64-v3" ]]; then
+              BIN_NAME="manganese-v${VERSION}-windows-avx2.exe"
+            else
+              BIN_NAME="manganese-v${VERSION}-windows-${CPU}.exe"
+            fi
+            cp target/${TARGET}/release/manganese.exe current_release/${BIN_NAME}
+            x86_64-w64-mingw32-strip current_release/${BIN_NAME}
+            upx --best --ultra-brute current_release/${BIN_NAME}
+            shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
+          fi
+
+      - name: Upload binaries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: current_release/*
