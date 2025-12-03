@@ -35,6 +35,59 @@ static inline int platform_mlock(void *addr, size_t len) {
 // Use standard mlock() on Unix
 #endif
 
+// Platform-specific aligned_alloc
+#ifdef PLATFORM_WINDOWS
+#include <malloc.h>
+static inline void* platform_aligned_alloc(size_t alignment, size_t size) {
+    return _aligned_malloc(size, alignment);
+}
+#define aligned_alloc(alignment, size) platform_aligned_alloc(alignment, size)
+static inline void platform_aligned_free(void* ptr) {
+    _aligned_free(ptr);
+}
+#define aligned_free(ptr) platform_aligned_free(ptr)
+#else
+// Use standard aligned_alloc() on Unix (C11)
+#define aligned_free(ptr) free(ptr)
+#endif
+
+// Platform-specific clock definitions
+#ifdef PLATFORM_WINDOWS
+#include <time.h>
+// Define timespec if not available (older MinGW versions)
+#ifndef _TIMESPEC_DEFINED
+#define _TIMESPEC_DEFINED
+struct timespec {
+    time_t tv_sec;
+    long tv_nsec;
+};
+#endif
+// CLOCK_MONOTONIC_RAW is not available on Windows, use CLOCK_MONOTONIC equivalent
+// For Windows, we'll use QueryPerformanceCounter in clock_gettime wrapper
+#ifndef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 1
+#endif
+#ifndef CLOCK_MONOTONIC_RAW
+#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
+
+// Windows implementation of clock_gettime for CLOCK_MONOTONIC
+static inline int platform_clock_gettime(int clock_id, struct timespec *tp) {
+    (void)clock_id; // Ignore clock_id on Windows, always use high-res timer
+    LARGE_INTEGER frequency, counter;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    
+    tp->tv_sec = counter.QuadPart / frequency.QuadPart;
+    tp->tv_nsec = (long)(((counter.QuadPart % frequency.QuadPart) * 1000000000LL) / frequency.QuadPart);
+    return 0;
+}
+#define clock_gettime(clock_id, tp) platform_clock_gettime(clock_id, tp)
+#else
+// Use standard clock_gettime() on Unix
+#include <time.h>
+#endif
+
 // Platform-specific sysinfo
 #ifdef PLATFORM_WINDOWS
 struct sysinfo {

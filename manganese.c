@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
 
       break;
     } else {
-      free(mem);
+      aligned_free(mem);
       mem = NULL;
     }
     if((total_alloc - i * backoff) <= backoff) {

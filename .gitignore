@@ -2,6 +2,10 @@
 *.o
 *.s
 
+# IDE configuration
+.idea/
+.vscode/
+
 # built binary & iso
 manganese
 *.iso
