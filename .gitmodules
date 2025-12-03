@@ -6,3 +6,6 @@
 	path = OpenBLAS
 	url = https://github.com/xianyi/OpenBLAS
 	branch = release-0.3.0
+[submodule "mman-win32"]
+	path = mman-win32
+	url = https://github.com/witwall/mman-win32.git

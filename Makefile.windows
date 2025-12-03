@@ -1,0 +1,47 @@
+# Windows Makefile for Manganese
+# Requires: MinGW-w64 with OpenMP support, mman-win32
+
+CFLAGS=-O3 -masm=intel -flto -fopenmp -std=gnu2x -ISIMDxorshift/include -Imman-win32 $(shell [ -f OpenBLAS/libopenblas.a ] && echo "-DHAVE_OPENBLAS" || echo "")
+CC?=gcc
+
+# Detect AVX-512 support
+AVX512FLAGS=-mavx512f -mavx512bw
+AVX2FLAGS=-mavx2
+
+# Check if CPU supports AVX-512 (simplified - assumes AVX-512 capable CPU)
+# In practice, you'd want runtime detection, but for builds we target AVX2
+TARGET_ISA=AVX2
+
+manganese.exe: manganese.o tests-256.o tests.o hardware.o SIMDxorshift/simdxorshift128plus.o mman-win32/mman.o
+	$(CC) $(CFLAGS) -o manganese.exe manganese.o tests-256.o tests.o hardware.o \
+		SIMDxorshift/simdxorshift128plus.o mman-win32/mman.o \
+		$(shell [ -f OpenBLAS/libopenblas.a ] && echo "OpenBLAS/libopenblas.a" || echo "") \
+		-static -lm -lpthread
+
+mman-win32/mman.o: mman-win32/mman.c
+	@echo "Building mman-win32..."
+	@cd mman-win32 && $(CC) -c mman.c -o mman.o || (echo "Error: Failed to build mman-win32" && exit 1)
+
+manganese.o: manganese.c platform.h
+	$(CC) $(CFLAGS) -c manganese.c
+
+tests-256.o: tests-256.c tests-256.h
+	$(CC) $(CFLAGS) -mrdrnd $(AVX2FLAGS) -c tests-256.c
+
+tests.o: tests.c tests.h
+	$(CC) $(CFLAGS) -c tests.c
+
+hardware.o: hardware.c hardware.h platform.h
+	$(CC) $(CFLAGS) -c hardware.c
+
+SIMDxorshift/simdxorshift128plus.o:
+	$(MAKE) CFLAGS=-mavx2 -C SIMDxorshift simdxorshift128plus.o
+
+.PHONY: clean
+clean:
+	rm -f manganese.exe *.o
+
+.PHONY: clean-all
+clean-all: clean
+	$(MAKE) -C SIMDxorshift clean
+

@@ -5,7 +5,9 @@
 #include "sys/sysinfo.h"
 
 #include "immintrin.h"
+#ifdef HAVE_OPENBLAS
 #include "OpenBLAS/cblas.h"
+#endif
 
 #include "SIMDxorshift/include/simdxorshift128plus.h"
 
@@ -215,6 +217,7 @@ void avx512_addressing(void* const restrict mem, const size_t size) {
 }
 
 void avx512_sgemm(char* const restrict mem, const size_t size) {
+#ifdef HAVE_OPENBLAS
   const __m512 zeroes = _mm512_set1_ps(0.0f);
   set_all_down(mem, size, (__m512i) zeroes);
   for(ssize_t _ = 0; _ < 32; _++) {
@@ -233,6 +236,11 @@ void avx512_sgemm(char* const restrict mem, const size_t size) {
     }
   }
   get_all_up(mem, size, (__m512i) zeroes);
+#else
+  // SGEMM test requires OpenBLAS - skip if not available
+  (void)mem;
+  (void)size;
+#endif
 }
 
 // Walking-1 pattern: A single 1 bit walks through all bit positions

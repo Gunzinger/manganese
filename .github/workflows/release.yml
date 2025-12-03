@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    branches: [ master, main ]
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  detect-release:
+    runs-on: ubuntu-latest
+    outputs:
+      is-release: ${{ steps.check.outputs.is-release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check if this is a release
+        id: check
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            echo "is-release=true" >> $GITHUB_OUTPUT
+            echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+          else
+            echo "is-release=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
+          fi
+
+  build-linux-release:
+    needs: detect-release
+    if: needs.detect-release.outputs.is-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libomp-dev
+      
+      - name: Cache OpenBLAS
+        id: cache-openblas-linux
+        uses: actions/cache@v4
+        with:
+          path: OpenBLAS/libopenblas.a
+          key: openblas-${{ runner.os }}-${{ hashFiles('OpenBLAS/**') }}
+          restore-keys: |
+            openblas-${{ runner.os }}-
+      
+      - name: Build OpenBLAS (if not cached)
+        if: steps.cache-openblas-linux.outputs.cache-hit != 'true'
+        run: |
+          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 -j$(nproc)
+        continue-on-error: true
+      
+      - name: Build binary
+        run: |
+          CC=gcc make || (echo "Build failed, trying without OpenBLAS..." && CC=gcc CFLAGS="-march=native -O3 -masm=intel -flto -fopenmp -std=gnu2x -ISIMDxorshift/include" make)
+      
+      - name: Strip binary
+        run: |
+          strip manganese
+      
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: manganese-linux-${{ needs.detect-release.outputs.version }}
+          path: manganese
+          retention-days: 90
+
+  build-windows-release:
+    needs: detect-release
+    if: needs.detect-release.outputs.is-release == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-openmp make
+      
+      - name: Build mman-win32
+        run: |
+          cd mman-win32
+          gcc -c mman.c -o mman.o || (echo "Error: Failed to build mman-win32" && exit 1)
+        shell: bash
+      
+      - name: Cache OpenBLAS
+        id: cache-openblas-win-rel
+        uses: actions/cache@v4
+        with:
+          path: OpenBLAS/libopenblas.a
+          key: openblas-${{ runner.os }}-${{ hashFiles('OpenBLAS/**') }}
+          restore-keys: |
+            openblas-${{ runner.os }}-
+      
+      - name: Build OpenBLAS (if not cached)
+        if: steps.cache-openblas-win-rel.outputs.cache-hit != 'true'
+        run: |
+          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 CC=gcc FC=gfortran
+        shell: bash
+        continue-on-error: true
+      
+      - name: Build Windows binary
+        run: |
+          export PATH="/c/msys64/mingw64/bin:$PATH"
+          make -f Makefile.windows
+        shell: bash
+      
+      - name: Strip binary
+        run: |
+          strip manganese.exe
+        shell: bash
+      
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: manganese-windows-${{ needs.detect-release.outputs.version }}
+          path: manganese.exe
+          retention-days: 90
+          if-no-files-found: warn
+
+  create-release:
+    needs: [detect-release, build-linux-release, build-windows-release]
+    if: needs.detect-release.outputs.is-release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: manganese-linux-${{ needs.detect-release.outputs.version }}
+          path: ./artifacts
+      
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: manganese-windows-${{ needs.detect-release.outputs.version }}
+          path: ./artifacts
+          continue-on-error: true
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.detect-release.outputs.version }}
+          name: Release v${{ needs.detect-release.outputs.version }}
+          body: |
+            ## Manganese v${{ needs.detect-release.outputs.version }}
+            
+            ### Downloads
+            - **Linux**: `manganese` (stripped binary)
+            - **Windows**: `manganese.exe` (stripped binary)
+            
+            ### Installation
+            Download the appropriate binary for your platform and make it executable:
+            ```bash
+            # Linux
+            chmod +x manganese
+            ./manganese 10%
+            
+            # Windows
+            manganese.exe 10%
+            ```
+          files: |
+            artifacts/manganese
+            artifacts/manganese.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

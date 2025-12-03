@@ -1,4 +1,3 @@
-#include "unistd.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "stdint.h"
@@ -7,9 +6,15 @@
 #include "time.h"
 #include "stdbool.h"
 
-#include "sys/sysinfo.h"
-#include "sys/mman.h"
+#ifdef PLATFORM_WINDOWS
+#include <windows.h>
+#include <io.h>
+#define ssize_t SSIZE_T
+#else
+#include "unistd.h"
+#endif
 
+#include "platform.h"
 #include "tests.h"
 #include "hardware.h"
 

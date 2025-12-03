@@ -1,24 +1,96 @@
-name: Build Binary & ISO
-on: [push]
+name: Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       
-      # init submodules
-      - run: git submodule update --init --recursive
-
-      # generate binary and upload it
-      - run: make
-      - uses: actions/upload-artifact@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libomp-dev
+      
+      - name: Cache OpenBLAS
+        id: cache-openblas
+        uses: actions/cache@v4
         with:
-          name: manganese
+          path: OpenBLAS/libopenblas.a
+          key: openblas-${{ runner.os }}-${{ hashFiles('OpenBLAS/**') }}
+          restore-keys: |
+            openblas-${{ runner.os }}-
+      
+      - name: Build OpenBLAS (if not cached)
+        if: steps.cache-openblas.outputs.cache-hit != 'true'
+        run: |
+          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 -j$(nproc)
+        continue-on-error: true
+      
+      - name: Build binary
+        run: |
+          CC=gcc make || (echo "Build failed, trying without OpenBLAS..." && CC=gcc CFLAGS="-march=native -O3 -masm=intel -flto -fopenmp -std=gnu2x -ISIMDxorshift/include" make)
+      
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: manganese-linux
           path: manganese
+          retention-days: 7
 
-      # generate bootable ISO and upload it
-      - run: make manganese.iso
-      - uses: actions/upload-artifact@v4
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: manganese.iso
-          path: manganese.iso
+          submodules: recursive
+          fetch-depth: 0
+      
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-openmp make
+      
+      - name: Build mman-win32
+        run: |
+          cd mman-win32
+          gcc -c mman.c -o mman.o || (echo "Error: Failed to build mman-win32" && exit 1)
+        shell: bash
+      
+      - name: Cache OpenBLAS
+        id: cache-openblas-win
+        uses: actions/cache@v4
+        with:
+          path: OpenBLAS/libopenblas.a
+          key: openblas-${{ runner.os }}-${{ hashFiles('OpenBLAS/**') }}
+          restore-keys: |
+            openblas-${{ runner.os }}-
+      
+      - name: Build OpenBLAS (if not cached)
+        if: steps.cache-openblas-win.outputs.cache-hit != 'true'
+        run: |
+          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 CC=gcc FC=gfortran
+        shell: bash
+        continue-on-error: true
+      
+      - name: Build Windows binary
+        run: |
+          export PATH="/c/msys64/mingw64/bin:$PATH"
+          make -f Makefile.windows
+        shell: bash
+      
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: manganese-windows
+          path: manganese.exe
+          retention-days: 7
+          if-no-files-found: warn

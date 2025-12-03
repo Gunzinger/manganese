@@ -1,18 +1,26 @@
+#ifndef _WIN32
 #define _GNU_SOURCE // for sched_getaffinity
+#endif
 
 #include "assert.h"
 #include "cpuid.h"
-#include "glob.h"
 #include "stdint.h"
 #include "stdio.h"
 #include "stdlib.h"
-#include "sys/stat.h"
-#include "unistd.h"
 #include "stdbool.h"
 
+#ifdef PLATFORM_WINDOWS
+#include <windows.h>
+#include <intrin.h>
+#else
+#include "glob.h"
+#include "sys/stat.h"
+#include "unistd.h"
 #include "omp.h"
-
 #include "sched.h"
+#endif
+
+#include "platform.h"
 #include "hardware.h"
 
 const uint64_t HARDWARE_HAS_SSE = 0x00;
@@ -47,6 +55,12 @@ uint64_t hardware_instruction_set() {
 }
 
 uint64_t hardware_ram_speed(bool configured) {
+#ifdef PLATFORM_WINDOWS
+  // Windows doesn't have DMI tables accessible the same way
+  // Return 0 to indicate speed is unknown
+  (void)configured;
+  return (uint64_t) 0u;
+#else
   glob_t dmiglob;
   uint16_t ram_speed;
   switch (glob("/sys/firmware/dmi/entries/17-*/raw", 0, NULL, &dmiglob)) {
@@ -70,9 +84,30 @@ uint64_t hardware_ram_speed(bool configured) {
   }
 
   return (uint64_t) ram_speed;
+#endif
 }
 
 uint64_t hardware_cpu_count() {
+#ifdef PLATFORM_WINDOWS
+  SYSTEM_INFO si;
+  GetSystemInfo(&si);
+  #ifdef _OPENMP
+  int omp_thread_count;
+  #pragma omp parallel
+  {
+    #pragma omp single
+    omp_thread_count = omp_get_num_threads();
+  }
+  if((DWORD)omp_thread_count < si.dwNumberOfProcessors) {
+    omp_set_num_threads(si.dwNumberOfProcessors);
+    return si.dwNumberOfProcessors;
+  } else {
+    return omp_thread_count;
+  }
+  #else
+  return si.dwNumberOfProcessors;
+  #endif
+#else
   cpu_set_t cpuset;
   size_t omp_thread_count;
 
@@ -94,4 +129,5 @@ uint64_t hardware_cpu_count() {
   } else {
     return omp_thread_count;
   }
+#endif
 }
