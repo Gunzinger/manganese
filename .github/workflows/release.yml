@@ -1,0 +1,154 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.gh_release.outputs.id }}
+      release_upload_url: ${{ steps.gh_release.outputs.upload_url }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        id: gh_release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release v${{ env.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## Manganese v${{ env.VERSION }} - Rust Edition
+            
+            A high-performance memory tester written in Rust with AVX2 and AVX-512 SIMD support.
+            
+            ### Downloads
+            
+            #### Linux (static MUSL binaries)
+            - `manganese-v${{ env.VERSION }}-avx256` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
+            - `manganese-v${{ env.VERSION }}-avx512` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
+            
+            #### Windows
+            - `manganese-v${{ env.VERSION }}-avx256.exe` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
+            - `manganese-v${{ env.VERSION }}-avx512.exe` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
+            
+            ### Usage
+            ```bash
+            # Linux
+            chmod +x manganese-*
+            sudo ./manganese-* 10%
+            
+            # Windows (Run as Administrator)
+            manganese-*.exe 10%
+            ```
+            
+            ### CPU Target Information
+            - **x86-64-v3 (AVX2)**: Compatible with Intel Haswell (2013+), AMD Excavator (2015+) and newer
+            - **x86-64-v4 (AVX-512)**: Optimized for Intel Skylake-X (2017+), AMD Zen 4 (2022+) and newer
+          draft: false
+          prerelease: false
+
+  build_binaries:
+    needs: create_release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - cpu_target: x86-64-v3
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
+          - cpu_target: x86-64-v3
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
+          - cpu_target: x86-64-v4
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+          - cpu_target: x86-64-v4
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+    name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
+    env:
+      RUSTFLAGS: "${{ matrix.rustflags }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set version
+        run: |
+          echo "VERSION=${{ needs.create_release.outputs.version }}" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32 upx-ucl
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Update Cargo.toml version
+        run: |
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" Cargo.toml
+          head -n 10 Cargo.toml
+
+      - name: Build binary
+        run: |
+          TARGET="${{ matrix.os_target }}"
+          cargo build --release --target ${TARGET}
+
+      - name: Prepare release binaries
+        shell: bash
+        run: |
+          TARGET="${{ matrix.os_target }}"
+          CPU="${{ matrix.cpu_target }}"
+          VERSION="${{ needs.create_release.outputs.version }}"
+          mkdir -p current_release
+          
+          if [[ "${TARGET}" == *"linux"* ]]; then
+            if [[ "${CPU}" == "x86-64-v3" ]]; then
+              BIN_NAME="manganese-v${VERSION}-avx256"
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              BIN_NAME="manganese-v${VERSION}-avx512"
+            else
+              BIN_NAME="manganese-v${VERSION}-${CPU}"
+            fi
+            cp target/${TARGET}/release/manganese current_release/${BIN_NAME}
+            strip current_release/${BIN_NAME}
+            upx --best --ultra-brute current_release/${BIN_NAME}
+            shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
+          else
+            if [[ "${CPU}" == "x86-64-v3" ]]; then
+              BIN_NAME="manganese-v${VERSION}-avx256.exe"
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              BIN_NAME="manganese-v${VERSION}-avx512.exe"
+            else
+              BIN_NAME="manganese-v${VERSION}-${CPU}.exe"
+            fi
+            cp target/${TARGET}/release/manganese.exe current_release/${BIN_NAME}
+            x86_64-w64-mingw32-strip current_release/${BIN_NAME}
+            upx --best --ultra-brute current_release/${BIN_NAME}
+            shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
+          fi
+
+      - name: Upload binaries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: current_release/*

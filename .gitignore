@@ -1,7 +1,26 @@
-# build generated files
-*.o
-*.s
+# Rust
+/target/
+Cargo.lock
 
-# built binary & iso
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dll
+*.exe
 manganese
-*.iso
+manganese-*
+
+# Logs
+*.log

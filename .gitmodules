@@ -1,8 +1,0 @@
-[submodule "SIMDxorshift"]
-	path = SIMDxorshift
-	url = https://github.com/lemire/SIMDxorshift.git
-	branch = master
-[submodule "OpenBLAS"]
-	path = OpenBLAS
-	url = https://github.com/xianyi/OpenBLAS
-	branch = release-0.3.0

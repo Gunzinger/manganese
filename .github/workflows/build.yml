@@ -1,24 +1,88 @@
-name: Build Binary & ISO
-on: [push]
+name: Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - cpu_target: x86-64-v3
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
+          - cpu_target: x86-64-v3
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
+          - cpu_target: x86-64-v4
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+          - cpu_target: x86-64-v4
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+          - cpu_target: zen5
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
+          - cpu_target: zen5
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
+    name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
+    env:
+      RUSTFLAGS: "${{ matrix.rustflags }}"
     steps:
-      - uses: actions/checkout@v4
-      
-      # init submodules
-      - run: git submodule update --init --recursive
+      - name: Checkout code
+        uses: actions/checkout@v6
 
-      # generate binary and upload it
-      - run: make
-      - uses: actions/upload-artifact@v4
-        with:
-          name: manganese
-          path: manganese
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32
 
-      # generate bootable ISO and upload it
-      - run: make manganese.iso
-      - uses: actions/upload-artifact@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          name: manganese.iso
-          path: manganese.iso
+          toolchain: stable
+          targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build binary
+        run: |
+          TARGET="${{ matrix.os_target }}"
+          cargo build --release --target ${TARGET}
+
+      - name: Prepare artifacts
+        run: |
+          TARGET="${{ matrix.os_target }}"
+          CPU="${{ matrix.cpu_target }}"
+          mkdir -p artifacts
+          
+          if [[ "${TARGET}" == *"linux"* ]]; then
+            if [[ "${CPU}" == "x86-64-v3" ]]; then
+              cp target/${TARGET}/release/manganese artifacts/manganese-avx256
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              cp target/${TARGET}/release/manganese artifacts/manganese-avx512
+            else
+              cp target/${TARGET}/release/manganese artifacts/manganese-${CPU}
+            fi
+          else
+            if [[ "${CPU}" == "x86-64-v3" ]]; then
+              cp target/${TARGET}/release/manganese.exe artifacts/manganese-avx256.exe
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              cp target/${TARGET}/release/manganese.exe artifacts/manganese-avx512.exe
+            else
+              cp target/${TARGET}/release/manganese.exe artifacts/manganese-${CPU}.exe
+            fi
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: manganese-${{ matrix.os_target }}-${{ matrix.cpu_target }}
+          path: artifacts/*
+          retention-days: 7
