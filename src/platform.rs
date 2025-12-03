@@ -138,26 +138,8 @@ mod unix {
 
     #[cfg(target_os = "linux")]
     pub fn sysinfo() -> SysInfo {
-        let mut info = sysinfo_struct {
-            uptime: 0,
-            loads: [0; 3],
-            totalram: 0,
-            freeram: 0,
-            sharedram: 0,
-            bufferram: 0,
-            totalswap: 0,
-            freeswap: 0,
-            procs: 0,
-            totalhigh: 0,
-            freehigh: 0,
-            mem_unit: 0,
-            pad: [0; 0],
-            __reserved: [0; 8],
-        };
-        
-        unsafe {
-            libc::sysinfo(&mut info);
-        }
+        let mut info = unsafe { std::mem::zeroed::<libc::sysinfo>() };
+        let ret = unsafe { libc::sysinfo(&mut info) };
         
         SysInfo {
             totalram: (info.totalram as usize) * (info.mem_unit as usize),
@@ -191,7 +173,7 @@ mod unix {
     }
 
     pub fn getpagesize() -> usize {
-        unsafe { libc::getpagesize() as usize }
+        unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
     }
 
     pub unsafe fn mlock(addr: *mut u8, len: usize) -> i32 {
