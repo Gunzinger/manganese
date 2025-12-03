@@ -11,11 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        cpu_target: [x86-64-v3, x86-64-v4]
-        os_target: [x86_64-unknown-linux-musl, x86_64-pc-windows-gnu]
+        include:
+          - cpu_target: x86-64-v3
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
+          - cpu_target: x86-64-v3
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
+          - cpu_target: x86-64-v4
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+          - cpu_target: x86-64-v4
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
     name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
     env:
-      RUSTFLAGS: "-C target-cpu=${{ matrix.cpu_target }}"
+      RUSTFLAGS: "${{ matrix.rustflags }}"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
