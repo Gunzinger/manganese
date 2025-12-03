@@ -6,15 +6,18 @@ passes in less time.
 
 ## Features
 
-- **Rust rewrite**: Memory-safe implementation using Rust's SIMD intrinsics
 - **Rayon parallelism**: Automatic work-stealing parallelism across all CPU cores
 - **AVX2 and AVX-512**: Runtime feature detection with optimized code paths
-- **Cross-platform**: Native Linux and Windows support without external dependencies
+- **Cross-platform**: Native Linux and Windows binaries as static executables without external dependencies
 - **Non-temporal stores**: Bypasses CPU cache for maximum memory bandwidth
-- **Comprehensive DRAM testing**: Walking-1, walking-0, checkerboard, address line tests, anti-patterns, and inverse data patterns
-- **Static binaries**: Self-contained executables with no runtime dependencies
+- **Comprehensive DRAM testing**: Walking-1, walking-0, checkerboard, anti-patterns, and inverse data patterns
 
 ## Performance
+
+TODO benchmarks of rust version
+
+#### previous C version:
+```text 
 
 All benchmarks conducted on an i5 12600k paired with dual-channel DDR5 at 5400MT/s.
 
@@ -25,13 +28,14 @@ All benchmarks conducted on an i5 12600k paired with dual-channel DDR5 at 5400MT
 | AVX-512 | 1C/1T     | 9400MB/s       |
 | AVX2    | 6C+4c/16T | 53000MB/s      |
 | AVX-512 | 6C/12T    | 62000MB/s      |
+```
 
 ## Requirements
 
 - A CPU with AVX2 (x86-64-v3, 2013+) or AVX-512 (x86-64-v4, 2017+)
 - Linux 5.x+ or Windows 10/11 (64-bit)
 - Sufficient RAM to lock memory for testing
-- Administrator/root privileges for memory locking
+- Administrator/root privileges for memory locking (semi-optional)
 
 ## Installation & Usage
 
@@ -40,25 +44,27 @@ All benchmarks conducted on an i5 12600k paired with dual-channel DDR5 at 5400MT
 Download the latest release from the [Releases page](https://github.com/Gunzinger/manganese/releases):
 
 **Linux** (static MUSL binaries):
-- `manganese-*-linux-avx2` - AVX2 compatible (x86-64-v3)
-- `manganese-*-linux-x86-64-v4` - AVX-512 optimized (x86-64-v4)
+- `manganese-*-avx256` - AVX2 compatible (x86-64-v3)
+- `manganese-*-avx512` - AVX-512 optimized (x86-64-v4)
 
 **Windows**:
-- `manganese-*-windows-avx2.exe` - AVX2 compatible (x86-64-v3)
-- `manganese-*-windows-x86-64-v4.exe` - AVX-512 optimized (x86-64-v4)
+- `manganese-*-avx256.exe` - AVX2 compatible (x86-64-v3)
+- `manganese-*-avx512.exe` - AVX-512 optimized (x86-64-v4)
 
 Then run:
 ```bash
-# Linux - AVX2 compatible (recommended)
-chmod +x manganese-*-linux-avx2
-sudo ./manganese-*-linux-avx2 10%
+chmod +x manganese-*
+# Linux - AVX2 compatible
+sudo ./manganese-*-avx256 10%
 
 # Linux - AVX-512 optimized
-chmod +x manganese-*-linux-x86-64-v4
-sudo ./manganese-*-linux-x86-64-v4 10%
+sudo ./manganese-*-avx512 10%
 
 # Windows (Run as Administrator)
-manganese-*-windows-avx2.exe 10%
+manganese-*-avx256.exe 10%
+# or 
+manganese-*-avx512.exe 10%
+
 ```
 
 ### Building from Source
@@ -81,10 +87,10 @@ git clone https://github.com/Gunzinger/manganese.git
 cd manganese
 
 # Build AVX2 version (x86-64-v3, recommended for compatibility)
-RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --target x86_64-unknown-linux-musl
+RUSTFLAGS="-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma" cargo build --release --target x86_64-unknown-linux-musl
 
 # Build AVX-512 version (x86-64-v4, optimized for newer CPUs)
-RUSTFLAGS="-C target-cpu=x86-64-v4" cargo build --release --target x86_64-unknown-linux-musl
+RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw" cargo build --release --target x86_64-unknown-linux-musl
 
 # Run tests
 sudo ./target/x86_64-unknown-linux-musl/release/manganese 10%
@@ -100,7 +106,10 @@ sudo taskset -c 0-7 ./target/x86_64-unknown-linux-musl/release/manganese 10%
 sudo apt-get install gcc-mingw-w64-x86-64-win32
 
 # Build for Windows
-RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --target x86_64-pc-windows-gnu
+RUSTFLAGS="-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma" cargo build --release --target x86_64-pc-windows-gnu
+# or for AVX512
+RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw" cargo build --release --target x86_64-pc-windows-gnu
+
 
 # Binary will be at: target/x86_64-pc-windows-gnu/release/manganese.exe
 ```
@@ -111,22 +120,26 @@ Manganese includes comprehensive DRAM test patterns designed to detect common fa
 
 ### Standard Tests
 - **Basic Tests**: Common data patterns (0x00, 0xFF, 0x55, 0xAA, etc.)
-- **March Tests**: Sequential memory access patterns
 - **Random Inversions**: Random data patterns and their inverses
 - **Moving Inversions**: Bit-shifted patterns at various granularities
 - **Moving Saturations**: Saturation patterns with transitions
-- **Addressing**: Address-as-data patterns for decoder testing
-- **SGEMM**: Matrix multiplication stress test (requires OpenBLAS)
+
+```
+(broken) - **March Tests**: Sequential memory access patterns
+(broken) - **Addressing**: Address-as-data patterns for decoder testing
+(broken/unimplemented) - **SGEMM**: Matrix multiplication stress test (requires OpenBLAS)
+```
 
 ### DRAM-Specific Tests
 - **Walking-1**: Single 1-bit walks through all positions (detects stuck-at faults, coupling faults)
 - **Walking-0**: Single 0-bit walks through all positions (detects stuck-at-1 faults)
 - **Checkerboard**: Alternating 0xAA/0x55 patterns (detects adjacent cell coupling)
-- **Address Line Test**: Enhanced address decoding tests (detects decoder faults, stuck address lines)
 - **Anti-Patterns**: Inverse pattern testing (detects pattern sensitivity)
 - **Inverse Data Patterns**: Byte/word/dword level inversions (detects data-dependent faults)
+``` (broken) **Address Line Test**: Enhanced address decoding tests (detects decoder faults, stuck address lines)```
 
-These patterns are specifically designed to trigger common faults on DDR4/DDR5 platforms and weaknesses in memory controllers (IMC) and memory ICs.
+These patterns are specifically designed to trigger common faults on DDR4/DDR5 platforms
+ and weaknesses in memory controllers (IMC) and memory ICs.
 
 ## Usage Examples
 
@@ -138,7 +151,7 @@ These patterns are specifically designed to trigger common faults on DDR4/DDR5 p
 # Test 50% of total RAM
 ./manganese 50%
 
-# Test all available RAM (not recommended unless you know what you're doing)
+# Test all available RAM (not recommended unless you know what you're doing [it is impossible, lol])
 sudo ./manganese 100%
 ```
 
@@ -146,12 +159,9 @@ sudo ./manganese 100%
 ```bash
 # Test specific CPU cores (Linux)
 sudo taskset -c 0-3 ./manganese 25%  # Use cores 0-3
-
-# Run with limited memory lock (if ulimit is set)
-./manganese 5%
 ```
 
-### Example Output
+### Example Output (from c version)
 Tested at 80mV below the threshold of stability
 
 ![Console output for detected instability](run-example.png)
@@ -211,23 +221,15 @@ ulimit -l unlimited
 
 Or run as root:
 ```bash
-sudo ./manganese-*-linux-* 10%
+sudo ./manganese-* 10%
 ```
 
 ### Windows: Memory locking fails
 Run as Administrator to allow memory locking:
 ```bash
 # Right-click Command Prompt/PowerShell -> Run as Administrator
-manganese-*-windows-*.exe 10%
+manganese-*.exe 10%
 ```
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-- Code follows the existing style
-- Tests pass on both Linux and Windows
-- Submodules are properly initialized
-- OpenBLAS is optional (don't break builds without it)
 
 ## Implementation Notes
 
@@ -239,5 +241,5 @@ This is a complete Rust rewrite of the original C implementation:
 
 ## Credits
 
-- Original C implementation concept and test patterns
+- [Original C implementation](https://github.com/AdamNiederer/manganese) concept and test patterns by [Adam Niederer](https://github.com/AdamNiederer)
 - Inspired by Daniel Lemire's SIMDxorshift for RNG algorithm design

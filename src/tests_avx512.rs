@@ -679,6 +679,7 @@ pub unsafe fn avx512_inverse_data_patterns(mem: *mut u8, size: usize) {
     }
 }
 
+//FIXME: remove stubs and/or error out when running in unsupported configuration
 // Stub implementations for non-AVX512 targets
 #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
 pub unsafe fn avx512_tests_init(_cpus: usize, _errors: *const AtomicU64) {}

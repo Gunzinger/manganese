@@ -18,6 +18,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("usage: manganese [0%-99%]");
+        eprintln!("where the input % is the amount of total installed ram that should be tested");
         std::process::exit(1);
     }
 
