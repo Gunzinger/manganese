@@ -43,15 +43,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libomp-dev
-      
+
+      - name: Get OpenBLAS submodule commit
+        id: openblas-commit
+        run: |
+          echo "OPENBLAS_HASH=$(git submodule status OpenBLAS | awk '{print $1}')" >> $GITHUB_ENV
+
       - name: Cache OpenBLAS
         id: cache-openblas-linux
         uses: actions/cache@v4
         with:
           path: OpenBLAS/libopenblas.a
-          key: openblas-${{ runner.os }}-${{ hashFiles('OpenBLAS/**') }}
-          restore-keys: |
-            openblas-${{ runner.os }}-
+          key: openblas-${{ runner.os }}-${{ env.OPENBLAS_HASH }}
       
       - name: Build OpenBLAS (if not cached)
         if: steps.cache-openblas-linux.outputs.cache-hit != 'true'
@@ -95,15 +98,18 @@ jobs:
           cd mman-win32
           gcc -c mman.c -o mman.o || (echo "Error: Failed to build mman-win32" && exit 1)
         shell: bash
-      
+
+      - name: Get OpenBLAS submodule commit
+        id: openblas-commit
+        run: |
+          echo "OPENBLAS_HASH=$(git submodule status OpenBLAS | awk '{print $1}')" >> $GITHUB_ENV
+
       - name: Cache OpenBLAS
         id: cache-openblas-win-rel
         uses: actions/cache@v4
         with:
           path: OpenBLAS/libopenblas.a
-          key: openblas-${{ runner.os }}-${{ hashFiles('OpenBLAS/**') }}
-          restore-keys: |
-            openblas-${{ runner.os }}-
+          key: openblas-${{ runner.os }}-${{ env.OPENBLAS_HASH }}
       
       - name: Build OpenBLAS (if not cached)
         if: steps.cache-openblas-win-rel.outputs.cache-hit != 'true'
@@ -163,7 +169,7 @@ jobs:
             - **Linux**: `manganese` (stripped binary)
             - **Windows**: `manganese.exe` (stripped binary)
             
-            ### Installation
+            ### Usage
             Download the appropriate binary for your platform and make it executable:
             ```bash
             # Linux
