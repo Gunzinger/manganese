@@ -103,6 +103,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
 
       - name: Cache Rust dependencies

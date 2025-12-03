@@ -2,13 +2,14 @@
 name = "manganese"
 version = "1.0.0"
 edition = "2021"
+rust-version = "1.80"
 
 [[bin]]
 name = "manganese"
 path = "src/main.rs"
 
 [dependencies]
-rayon = "1.8"
+rayon = "1.10"
 libc = "0.2"
 cfg-if = "1.0"
 num_cpus = "1.16"
@@ -17,7 +18,7 @@ num_cpus = "1.16"
 glob = "0.3"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winbase", "sysinfoapi", "memoryapi", "processthreadsapi", "handleapi"] }
+winapi = { version = "0.3", features = ["winbase", "sysinfoapi", "memoryapi", "processthreadsapi", "handleapi", "heapapi", "winnt"] }
 
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"

@@ -10,7 +10,7 @@ mod tests_avx512;
 
 use hardware::{hardware_cpu_count, hardware_instruction_set, hardware_is_needlessly_disabled, hardware_ram_speed, InstructionSet};
 use platform::{getpagesize, mlock, sysinfo, aligned_alloc, aligned_free};
-use tests::{tests_init, Test};
+use tests::tests_init;
 
 static ERRORS: AtomicU64 = AtomicU64::new(0);
 
@@ -104,7 +104,7 @@ fn main() {
         for test in &tests {
             println!("Running: {}", test.name);
             unsafe {
-                test.run(mem_ptr, size);
+                (test.run)(mem_ptr, size);
             }
         }
 

@@ -1,7 +1,4 @@
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
-#[cfg(target_arch = "x86_64")]
-use std::is_x86_feature_detected;
+// No imports needed here - cpuid handled via module
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstructionSet {
@@ -95,10 +92,10 @@ pub fn hardware_ram_speed(_configured: bool) -> u64 {
 pub fn hardware_cpu_count() -> usize {
     #[cfg(windows)]
     {
-        use winapi::um::sysinfoapi::GetSystemInfo;
-        use winapi::um::winbase::SYSTEM_INFO;
+        use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
+        use std::mem;
         
-        let mut sys_info = SYSTEM_INFO::default();
+        let mut sys_info: SYSTEM_INFO = unsafe { mem::zeroed() };
         unsafe {
             GetSystemInfo(&mut sys_info);
         }

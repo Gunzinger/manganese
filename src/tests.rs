@@ -1,8 +1,6 @@
 use std::sync::atomic::AtomicU64;
 
 use crate::hardware::InstructionSet;
-use crate::tests_avx2::*;
-use crate::tests_avx512::*;
 
 pub struct Test {
     pub name: &'static str,
@@ -14,7 +12,7 @@ pub struct Test {
 pub fn tests_init(cpus: usize, errors: &'static AtomicU64, isa: InstructionSet) -> Vec<Test> {
     match isa {
         InstructionSet::AVX512 => {
-            avx512_tests_init(cpus, errors);
+            unsafe { avx512_tests_init(cpus, errors); }
             vec![
                 Test { name: "Basic Tests", passes: 4, iters: 6, run: avx512_basic_tests },
                 Test { name: "March", passes: 17, iters: 2, run: avx512_march },
@@ -37,7 +35,7 @@ pub fn tests_init(cpus: usize, errors: &'static AtomicU64, isa: InstructionSet) 
             ]
         }
         InstructionSet::AVX2 => {
-            avx2_tests_init(cpus, errors);
+            unsafe { avx2_tests_init(cpus, errors); }
             vec![
                 Test { name: "Basic Tests", passes: 4, iters: 6, run: avx2_basic_tests },
                 Test { name: "March", passes: 17, iters: 2, run: avx2_march },
@@ -63,6 +61,11 @@ pub fn tests_init(cpus: usize, errors: &'static AtomicU64, isa: InstructionSet) 
     }
 }
 
-pub mod tests_avx2;
-pub mod tests_avx512;
+// Module declarations - files are in src/ directory
+mod tests_avx2;
+mod tests_avx512;
+
+// Re-export init functions
+use tests_avx2::avx2_tests_init;
+use tests_avx512::avx512_tests_init;
 

@@ -1,9 +1,8 @@
 #[cfg(windows)]
 mod windows {
-    use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, MEMORYSTATUSEX, SYSTEM_INFO};
-    use winapi::um::winbase::GetSystemInfo;
+    use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, GetSystemInfo, MEMORYSTATUSEX, SYSTEM_INFO};
     use winapi::um::memoryapi::VirtualLock;
-    use winapi::um::winnt::MEMORYSTATUSEX_SIZE;
+    use std::mem;
 
     pub struct SysInfo {
         pub totalram: usize,
@@ -20,7 +19,7 @@ mod windows {
 
     pub fn sysinfo() -> SysInfo {
         let mut mem_status = MEMORYSTATUSEX {
-            dwLength: MEMORYSTATUSEX_SIZE,
+            dwLength: mem::size_of::<MEMORYSTATUSEX>() as u32,
             dwMemoryLoad: 0,
             ullTotalPhys: 0,
             ullAvailPhys: 0,
@@ -55,11 +54,11 @@ mod windows {
     }
 
     pub fn getpagesize() -> usize {
-        let mut sys_info = SYSTEM_INFO::default();
         unsafe {
+            let mut sys_info: SYSTEM_INFO = mem::zeroed();
             GetSystemInfo(&mut sys_info);
+            sys_info.dwPageSize as usize
         }
-        sys_info.dwPageSize as usize
     }
 
     pub unsafe fn mlock(addr: *mut u8, len: usize) -> i32 {
@@ -71,13 +70,34 @@ mod windows {
     }
 
     pub unsafe fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
-        use winapi::um::winbase::_aligned_malloc;
-        _aligned_malloc(size, alignment) as *mut u8
+        // Windows doesn't have aligned_alloc in winapi, use libc or allocate manually
+        // For now, use regular malloc with alignment check
+        use winapi::um::heapapi::{GetProcessHeap, HeapAlloc};
+        use winapi::um::winnt::HEAP_ZERO_MEMORY;
+        
+        let heap = GetProcessHeap();
+        if heap.is_null() {
+            return std::ptr::null_mut();
+        }
+        
+        // Allocate extra space for alignment
+        let total_size = size + alignment;
+        let raw_ptr = HeapAlloc(heap, HEAP_ZERO_MEMORY, total_size) as *mut u8;
+        if raw_ptr.is_null() {
+            return std::ptr::null_mut();
+        }
+        
+        // Align the pointer
+        let offset = raw_ptr.align_offset(alignment);
+        raw_ptr.add(offset)
     }
 
     pub unsafe fn aligned_free(ptr: *mut u8) {
-        use winapi::um::winbase::_aligned_free;
-        _aligned_free(ptr as *mut _);
+        use winapi::um::heapapi::{GetProcessHeap, HeapFree};
+        let heap = GetProcessHeap();
+        if !heap.is_null() && !ptr.is_null() {
+            HeapFree(heap, 0, ptr as *mut _);
+        }
     }
 }
 
