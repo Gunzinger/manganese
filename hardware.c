@@ -3,7 +3,6 @@
 #endif
 
 #include "assert.h"
-#include "cpuid.h"
 #include "stdint.h"
 #include "stdio.h"
 #include "stdlib.h"
@@ -12,12 +11,24 @@
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
 #include <intrin.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+// CPUID feature bits (from CPUID leaf 7, EBX register)
+#define bit_AVX2     (1 << 5)   // Bit 5: AVX2
+#define bit_AVX512F  (1 << 16)  // Bit 16: AVX-512 Foundation
+#define bit_AVX512BW (1 << 30)  // Bit 30: AVX-512 Byte and Word Instructions
 #else
+#include "cpuid.h"
 #include "glob.h"
 #include "sys/stat.h"
 #include "unistd.h"
 #include "omp.h"
 #include "sched.h"
+// CPUID feature bits (from CPUID leaf 7, EBX register)
+#define bit_AVX2     (1 << 5)   // Bit 5: AVX2
+#define bit_AVX512F  (1 << 16)  // Bit 16: AVX-512 Foundation
+#define bit_AVX512BW (1 << 30)  // Bit 30: AVX-512 Byte and Word Instructions
 #endif
 
 #include "platform.h"
@@ -28,10 +39,23 @@ const uint64_t HARDWARE_HAS_AVX2 = 0x01;
 const uint64_t HARDWARE_HAS_AVX512 = 0x02;
 
 uint64_t hardware_is_needlessly_disabled() {
+#ifdef PLATFORM_WINDOWS
+  int cpuInfo[4] = {0};
+  __cpuid(cpuInfo, 0x01);
+  int a = cpuInfo[0], b = cpuInfo[1], c = cpuInfo[2], d = cpuInfo[3];
+  while(a == 0) {
+    __cpuid(cpuInfo, 0x01);
+    a = cpuInfo[0];
+    b = cpuInfo[1];
+    c = cpuInfo[2];
+    d = cpuInfo[3];
+  }
+#else
   int a = 0, b = 0, c = 0, d = 0;
   while(a == 0) {
     __cpuid(0x01, a, b, c, d);
   }
+#endif
   const int family = a >> 8 & (int)0x0F;
   const int model = (a >> 4 & (int)0x0F) | (a >> 12) & (int)0xF0;
   const int stepping = a & 0x0F;
@@ -39,10 +63,23 @@ uint64_t hardware_is_needlessly_disabled() {
 }
 
 uint64_t hardware_instruction_set() {
+#ifdef PLATFORM_WINDOWS
+  int cpuInfo[4] = {0};
+  __cpuid(cpuInfo, 0x07);
+  int a = cpuInfo[0], b = cpuInfo[1], c = cpuInfo[2], d = cpuInfo[3];
+  while(b == 0) {
+    __cpuid(cpuInfo, 0x07);
+    a = cpuInfo[0];
+    b = cpuInfo[1];
+    c = cpuInfo[2];
+    d = cpuInfo[3];
+  }
+#else
   int a = 0, b = 0, c = 0, d = 0;
   while(b == 0) {
     __cpuid(0x07, a, b, c, d);
   }
+#endif
 
   if(b & bit_AVX512F && b & bit_AVX512BW) {
     return HARDWARE_HAS_AVX512;
