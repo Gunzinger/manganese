@@ -2,11 +2,15 @@
 #define PLATFORM_H
 
 #ifdef _WIN32
+#ifndef PLATFORM_WINDOWS
 #define PLATFORM_WINDOWS
+#endif
 #include <windows.h>
 #include "mman.h"  // mman-win32
 #else
+#ifndef PLATFORM_UNIX
 #define PLATFORM_UNIX
+#endif
 #include <sys/mman.h>
 #include <unistd.h>
 #include <sys/sysinfo.h>

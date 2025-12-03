@@ -2,7 +2,7 @@
 #include "stdatomic.h"
 #include "stdint.h"
 #include "stdio.h"
-#include "sys/sysinfo.h"
+#include "platform.h"
 
 #include "immintrin.h"
 #ifdef HAVE_OPENBLAS

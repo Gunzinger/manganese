@@ -22,7 +22,7 @@ static _Atomic(uint64_t) ERRORS = 0;
 
 int main(int argc, char** argv) {
   if(argc < 2) {
-    fprintf(stderr, "usage: manganese [0%-99%]\n");
+    fprintf(stderr, "usage: manganese [0%%-99%%]\n");
     return 1;
   }
 
