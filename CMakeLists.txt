@@ -21,7 +21,7 @@ else()
 endif()
 
 # Base compiler flags
-set(CMAKE_C_FLAGS_RELEASE "-O3 -flto")
+set(CMAKE_C_FLAGS_RELEASE "-O3" "-flto")
 set(CMAKE_C_FLAGS_BASE "-fopenmp" "-std=gnu2x")
 
 # AVX512 flags
@@ -41,22 +41,12 @@ endif()
 # This matches the Makefile's OpenBLAS build configuration
 if(BUILD_WITH_OPENBLAS AND BUILD_OPENBLAS AND NOT EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
     find_program(MAKE_PROGRAM make)
-    find_program(NPROC_PROGRAM nproc)
     if(MAKE_PROGRAM)
-        # Determine number of parallel jobs
-        if(NPROC_PROGRAM)
-            execute_process(COMMAND ${NPROC_PROGRAM} OUTPUT_VARIABLE NPROC_OUTPUT OUTPUT_STRIP_TRAILING_WHITESPACE)
-            set(OPENBLAS_JOBS "-j${NPROC_OUTPUT}")
-        else()
-            set(OPENBLAS_JOBS "")
-        endif()
-        
         # Build OpenBLAS with the same flags as the Makefile
         # USE_OPENMP=1 ensures OpenBLAS is built with OpenMP support
         add_custom_target(build_openblas
             COMMAND ${MAKE_PROGRAM} -C ${CMAKE_SOURCE_DIR}/OpenBLAS 
-                USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 
-                ${OPENBLAS_JOBS}
+                USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             COMMENT "Building OpenBLAS with OpenMP support (this may take a while)..."
             BYPRODUCTS ${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a
