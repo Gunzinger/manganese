@@ -28,6 +28,7 @@ fn main() {
 
     let cpu_count = hardware_cpu_count();
     let ram_speed = hardware_ram_speed(true);
+    let actual_ram_speed = hardware_ram_speed(false);
     let isa = hardware_instruction_set();
 
     if matches!(isa, InstructionSet::SSE) {
@@ -60,7 +61,15 @@ fn main() {
             if mlock(ptr, alloc_size) == 0 {
                 eprintln!("Threads           : {}", cpu_count);
                 if ram_speed > 0 {
-                    eprintln!("Memory Speed      : {}MT/s ({} MB/s per channel)", ram_speed, 8 * ram_speed);
+                    if actual_ram_speed > 0 && actual_ram_speed != ram_speed {
+                        eprintln!("Memory Speed      : {}MT/s ({} MB/s per channel) [Spec: {}MT/s / {}MB/s per channel)]",
+                                  actual_ram_speed, 8 * actual_ram_speed,
+                                  ram_speed, 8 * ram_speed);
+                    } else {
+                        // runs at spec or actual speed field missing
+                        eprintln!("Memory Speed      : {}MT/s ({} MB/s per channel)",
+                                  ram_speed, 8 * ram_speed);
+                    }
                 }
                 eprintln!(
                     "Locked Memory     : {}MB of {}MB ({:.0}%)",

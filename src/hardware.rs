@@ -92,32 +92,89 @@ pub fn hardware_ram_speed(configured: bool) -> u64 {
 }
 
 #[cfg(target_os = "windows")]
-pub fn hardware_ram_speed(_configured: bool) -> u64 {
-    use wmi::{WMIConnection};
-    use serde::Deserialize;
+pub fn hardware_ram_speed(configured: bool) -> u64 {
+    use windows::Win32::System::SystemInformation::{GetSystemFirmwareTable, RSMB};
 
-    #[derive(Deserialize, Debug)]
-    struct PhysicalMemory {
-        Speed: Option<u32>, // Configured speed in MHz
+    // 'RSMB' signature
+    let provider = RSMB;
+    //let provider_ACPI = ACPI;
+
+    // Step 1: get required size
+    let size = unsafe { GetSystemFirmwareTable(provider, 0, None) };
+    //let size_ACPI = unsafe { GetSystemFirmwareTable(provider_ACPI, 0, None) };
+    if size == 0 {
+        eprintln!("Failed to get system firmware table (1) RSMB: {}", size);
+        return 0;
+    }
+    //eprintln!("got system firmware table (1) RSMB: {}, ACPI: {}, FIRM: {}", size, size_ACPI, size_FIRM);
+
+    // Step 2: allocate buffer
+    let mut buffer = vec![0u8; size as usize];
+
+    // Step 3: retrieve table
+    let ret = unsafe { GetSystemFirmwareTable(provider, 0, Some(&mut buffer[..])) };
+    if ret != size {
+        eprintln!("Failed to get system firmware table (3)");
+        return 0;
     }
 
-    let wmi_con = match WMIConnection::new() {
-        Ok(c) => c,
-        Err(_) => return 0,
-    };
+    // Step 4: parse Type 17 entries
+    let mut offset = 0usize;
+    let mut max_speed = 0u16;
 
-    let results: Vec<PhysicalMemory> = match wmi_con.raw_query("SELECT Speed FROM Win32_PhysicalMemory") {
-        Ok(res) => res,
-        Err(_) => return 0,
-    };
+    while offset + 4 <= buffer.len() {
+        let entry_type = buffer[offset];
+        let length = buffer[offset + 1] as usize;
 
-    results
-        .into_iter()
-        .filter_map(|r| r.Speed)
-        .max()
-        .map(|s| s as u64)
-        .unwrap_or(0)
+        //eprintln!("RSMBinfo @ {} (/{}): {} / {}", offset, buffer.len(), entry_type, length);
+        // see e.g. smbioslib https://github.com/jrgerber/smbios-lib/blob/942b892559b88e921f986f05b00641594c518d73/src/structs/types/memory_device.rs#L176
+
+        if length < 4 {
+            if length == 0 {
+                break;
+            }
+            // Move to next entry: SMBIOS entries are followed by double-null terminated strings
+            let mut next = offset + length;
+            while next + 1 < buffer.len() && !(buffer[next] == 0 && buffer[next + 1] == 0) {
+                next += 1;
+            }
+            offset = next + 2; // skip double null
+            continue;
+        }
+        if offset + length > buffer.len() {
+            break;
+        }
+
+        // Type 17 = Memory Device
+        if entry_type == 17 {
+            if configured {
+                if length > 0x16 {
+                    let speed = u16::from_le_bytes([buffer[offset + 0x15], buffer[offset + 0x16]]);
+                    if speed > 0 {
+                        max_speed = max_speed.max(speed);
+                    }
+                }
+            } else {
+                if length > 0x21 {
+                    let speed = u16::from_le_bytes([buffer[offset + 0x20], buffer[offset + 0x21]]);
+                    if speed > 0 {
+                        max_speed = max_speed.max(speed);
+                    }
+                }
+            }
+        }
+
+        // Move to next entry: SMBIOS entries are followed by double-null terminated strings
+        let mut next = offset + length;
+        while next + 1 < buffer.len() && !(buffer[next] == 0 && buffer[next + 1] == 0) {
+            next += 1;
+        }
+        offset = next + 2; // skip double null
+    }
+
+    max_speed as u64
 }
+
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn hardware_ram_speed(_configured: bool) -> u64 {
