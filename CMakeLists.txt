@@ -7,6 +7,7 @@ set(CMAKE_C_EXTENSIONS ON)
 
 # Build options
 option(BUILD_WITH_OPENBLAS "Build with OpenBLAS support" ON)
+option(BUILD_OPENBLAS "Build OpenBLAS from submodule (if not already built)" ON)
 option(BUILD_V3_TARGET "Build x86-64-v3 (AVX2) compatible binary" ON)
 option(BUILD_V4_TARGET "Build x86-64-v4 (AVX512) optimized binary" ON)
 
@@ -36,9 +37,44 @@ if(PLATFORM_WINDOWS)
     include_directories(${CMAKE_SOURCE_DIR}/mman-win32)
 endif()
 
+# Build OpenBLAS if requested and not already built
+# This matches the Makefile's OpenBLAS build configuration
+if(BUILD_WITH_OPENBLAS AND BUILD_OPENBLAS AND NOT EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+    find_program(MAKE_PROGRAM make)
+    find_program(NPROC_PROGRAM nproc)
+    if(MAKE_PROGRAM)
+        # Determine number of parallel jobs
+        if(NPROC_PROGRAM)
+            execute_process(COMMAND ${NPROC_PROGRAM} OUTPUT_VARIABLE NPROC_OUTPUT OUTPUT_STRIP_TRAILING_WHITESPACE)
+            set(OPENBLAS_JOBS "-j${NPROC_OUTPUT}")
+        else()
+            set(OPENBLAS_JOBS "")
+        endif()
+        
+        # Build OpenBLAS with the same flags as the Makefile
+        # USE_OPENMP=1 ensures OpenBLAS is built with OpenMP support
+        add_custom_target(build_openblas
+            COMMAND ${MAKE_PROGRAM} -C ${CMAKE_SOURCE_DIR}/OpenBLAS 
+                USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 
+                ${OPENBLAS_JOBS}
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            COMMENT "Building OpenBLAS with OpenMP support (this may take a while)..."
+            BYPRODUCTS ${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a
+        )
+        message(STATUS "OpenBLAS build target added. It will be built automatically as a dependency.")
+    else()
+        message(WARNING "make not found, cannot build OpenBLAS. Please build it manually or install it.")
+    endif()
+endif()
+
 if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
     add_definitions(-DHAVE_OPENBLAS)
     include_directories(${CMAKE_SOURCE_DIR}/OpenBLAS)
+    # Make OpenBLAS a dependency if we're building it
+    if(BUILD_OPENBLAS AND TARGET build_openblas)
+        # Note: We can't directly add it as a dependency here because targets are created later
+        # The user needs to build OpenBLAS first, or we handle it in the target creation
+    endif()
 endif()
 
 # Link libraries
@@ -96,10 +132,21 @@ set(TESTS_256_SOURCE tests-256.c)
 # Function to create a build variant
 function(create_build_variant variant_name arch_flag masm_flag)
     # SIMDxorshift library - always build with AVX512 (runtime detection will handle it)
+    # The Makefile calls: $(MAKE) CFLAGS=-mavx512f -C SIMDxorshift simdxorshift128plus.o
+    # This overrides SIMDxorshift's Makefile CFLAGS, so we match that behavior
+    # However, we still want the parent Makefile's optimization flags
     add_library(simdxorshift128plus_obj_${variant_name} OBJECT 
         SIMDxorshift/src/simdxorshift128plus.c
     )
-    target_compile_options(simdxorshift128plus_obj_${variant_name} PRIVATE "-mavx512f")
+    target_compile_options(simdxorshift128plus_obj_${variant_name} PRIVATE 
+        $<$<CONFIG:Release>:${CMAKE_C_FLAGS_RELEASE}>
+        ${CMAKE_C_FLAGS_BASE}
+        "-mavx512f"
+        ${arch_flag}
+    )
+    if(masm_flag)
+        target_compile_options(simdxorshift128plus_obj_${variant_name} PRIVATE ${masm_flag})
+    endif()
     target_include_directories(simdxorshift128plus_obj_${variant_name} PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
 
     # Build tests-512.o with AVX512
@@ -149,8 +196,15 @@ function(create_build_variant variant_name arch_flag masm_flag)
         endif()
     endif()
 
-    if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
-        target_link_libraries(manganese${variant_name} ${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a)
+    if(BUILD_WITH_OPENBLAS)
+        # Add OpenBLAS as a dependency if we're building it
+        if(BUILD_OPENBLAS AND TARGET build_openblas)
+            add_dependencies(manganese${variant_name} build_openblas)
+        endif()
+        # Link OpenBLAS if it exists (or will be built)
+        if(EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a" OR (BUILD_OPENBLAS AND TARGET build_openblas))
+            target_link_libraries(manganese${variant_name} ${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a)
+        endif()
     endif()
 
     # Windows-specific settings
@@ -170,12 +224,24 @@ endfunction()
 
 # Build x86-64-v3 variant (AVX2 baseline, works on AVX2 CPUs, uses AVX512 if available)
 if(BUILD_V3_TARGET)
-    create_build_variant("-avx2" "-march=x86-64-v3" "")
+    if(NOT CMAKE_CROSSCOMPILING AND NOT PLATFORM_WINDOWS)
+        create_build_variant("-avx2" "-march=x86-64-v3" "-masm=intel")
+    elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        create_build_variant("-avx2" "-march=x86-64-v3" "")
+    else()
+        create_build_variant("-avx2" "-march=x86-64-v3" "")
+    endif()
 endif()
 
 # Build x86-64-v4 variant (AVX512 optimized, requires AVX512 CPU)
 if(BUILD_V4_TARGET)
-    create_build_variant("-avx512" "-march=x86-64-v4" "")
+    if(NOT CMAKE_CROSSCOMPILING AND NOT PLATFORM_WINDOWS)
+        create_build_variant("-avx512" "-march=x86-64-v4" "-masm=intel")
+    elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        create_build_variant("-avx512" "-march=x86-64-v4" "")
+    else()
+        create_build_variant("-avx512" "-march=x86-64-v4" "")
+    endif()
 endif()
 
 # Default target (for backward compatibility, use v3 if available, otherwise v4)
