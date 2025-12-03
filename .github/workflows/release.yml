@@ -14,7 +14,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Extract version from tag
         id: version
@@ -37,32 +37,26 @@ jobs:
             ### Downloads
             
             #### Linux (static MUSL binaries)
-            - `manganese-v${{ env.VERSION }}-linux-avx2` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
-            - `manganese-v${{ env.VERSION }}-linux-x86-64-v4` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
+            - `manganese-v${{ env.VERSION }}-avx256` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
+            - `manganese-v${{ env.VERSION }}-avx512` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
             
             #### Windows
-            - `manganese-v${{ env.VERSION }}-windows-avx2.exe` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
-            - `manganese-v${{ env.VERSION }}-windows-x86-64-v4.exe` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
+            - `manganese-v${{ env.VERSION }}-avx256.exe` - AVX2 compatible (x86-64-v3, works on most modern CPUs)
+            - `manganese-v${{ env.VERSION }}-avx512.exe` - AVX-512 optimized (x86-64-v4, requires AVX-512 CPU)
             
             ### Usage
             ```bash
             # Linux
-            chmod +x manganese-*-linux-*
-            sudo ./manganese-*-linux-* 10%
+            chmod +x manganese-*
+            sudo ./manganese-* 10%
             
             # Windows (Run as Administrator)
-            manganese-*-windows-*.exe 10%
+            manganese-*.exe 10%
             ```
             
             ### CPU Target Information
             - **x86-64-v3 (AVX2)**: Compatible with Intel Haswell (2013+), AMD Excavator (2015+) and newer
             - **x86-64-v4 (AVX-512)**: Optimized for Intel Skylake-X (2017+), AMD Zen 4 (2022+) and newer
-            
-            ### Changes from C Version
-            - Rewritten in Rust for memory safety
-            - Uses Rayon for parallelism instead of OpenMP
-            - Native Rust SIMD intrinsics instead of SIMDxorshift C library
-            - No external dependencies (self-contained static binaries)
           draft: false
           prerelease: false
 
@@ -89,7 +83,7 @@ jobs:
       RUSTFLAGS: "${{ matrix.rustflags }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set version
         run: |
@@ -129,9 +123,11 @@ jobs:
           
           if [[ "${TARGET}" == *"linux"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              BIN_NAME="manganese-v${VERSION}-linux-avx2"
+              BIN_NAME="manganese-v${VERSION}-avx256"
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              BIN_NAME="manganese-v${VERSION}-avx512"
             else
-              BIN_NAME="manganese-v${VERSION}-linux-${CPU}"
+              BIN_NAME="manganese-v${VERSION}-${CPU}"
             fi
             cp target/${TARGET}/release/manganese current_release/${BIN_NAME}
             strip current_release/${BIN_NAME}
@@ -139,9 +135,11 @@ jobs:
             shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
           else
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              BIN_NAME="manganese-v${VERSION}-windows-avx2.exe"
+              BIN_NAME="manganese-v${VERSION}-avx256.exe"
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              BIN_NAME="manganese-v${VERSION}-avx512.exe"
             else
-              BIN_NAME="manganese-v${VERSION}-windows-${CPU}.exe"
+              BIN_NAME="manganese-v${VERSION}-${CPU}.exe"
             fi
             cp target/${TARGET}/release/manganese.exe current_release/${BIN_NAME}
             x86_64-w64-mingw32-strip current_release/${BIN_NAME}

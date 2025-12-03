@@ -24,12 +24,18 @@ jobs:
           - cpu_target: x86-64-v4
             os_target: x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+          - cpu_target: zen5
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
+          - cpu_target: zen5
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
     name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
     env:
       RUSTFLAGS: "${{ matrix.rustflags }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -58,20 +64,24 @@ jobs:
           
           if [[ "${TARGET}" == *"linux"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              cp target/${TARGET}/release/manganese artifacts/manganese-linux-avx2
+              cp target/${TARGET}/release/manganese artifacts/manganese-avx256
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              cp target/${TARGET}/release/manganese artifacts/manganese-avx512
             else
-              cp target/${TARGET}/release/manganese artifacts/manganese-linux-${CPU}
+              cp target/${TARGET}/release/manganese artifacts/manganese-${CPU}
             fi
           else
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              cp target/${TARGET}/release/manganese.exe artifacts/manganese-windows-avx2.exe
+              cp target/${TARGET}/release/manganese.exe artifacts/manganese-avx256.exe
+            elif [[ "${CPU}" == "x86-64-v4" ]]; then
+              cp target/${TARGET}/release/manganese.exe artifacts/manganese-avx512.exe
             else
-              cp target/${TARGET}/release/manganese.exe artifacts/manganese-windows-${CPU}.exe
+              cp target/${TARGET}/release/manganese.exe artifacts/manganese-${CPU}.exe
             fi
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: manganese-${{ matrix.os_target }}-${{ matrix.cpu_target }}
           path: artifacts/*
