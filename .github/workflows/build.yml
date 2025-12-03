@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libomp-dev
+          sudo apt-get install -y build-essential libomp-dev cmake
 
       - name: Get OpenBLAS submodule commit
         id: openblas-commit
@@ -38,66 +38,72 @@ jobs:
           make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 -j$(nproc)
         continue-on-error: true
       
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
       - name: Build binary
         run: |
-          CC=gcc make || (echo "Build failed, trying without OpenBLAS..." && CC=gcc CFLAGS="-march=native -O3 -masm=intel -flto -fopenmp -std=gnu2x -ISIMDxorshift/include" make)
+          cmake --build build -j$(nproc)
       
       - name: Upload Linux binary
         uses: actions/upload-artifact@v4
         with:
           name: manganese-linux
-          path: manganese
+          path: build/manganese
           retention-days: 7
 
   build-windows:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
       
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-openmp make
-      
-      - name: Build mman-win32
+      - name: Install dependencies
         run: |
-          cd mman-win32
-          gcc -c mman.c -o mman.o || (echo "Error: Failed to build mman-win32" && exit 1)
-        shell: bash
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake mingw-w64
 
       - name: Get OpenBLAS submodule commit
         id: openblas-commit
         run: |
           echo "OPENBLAS_HASH=$(git submodule status OpenBLAS | awk '{print $1}')" >> $GITHUB_ENV
 
-      - name: Cache OpenBLAS
+      - name: Cache OpenBLAS Windows
         id: cache-openblas-win
         uses: actions/cache@v4
         with:
           path: OpenBLAS/libopenblas.a
-          key: openblas-${{ runner.os }}-${{ env.OPENBLAS_HASH }}
+          key: openblas-windows-cross-${{ env.OPENBLAS_HASH }}
       
-      - name: Build OpenBLAS (if not cached)
+      - name: Build OpenBLAS for Windows (if not cached)
         if: steps.cache-openblas-win.outputs.cache-hit != 'true'
         run: |
-          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 CC=gcc FC=gfortran
-        shell: bash
+          make -C OpenBLAS USE_OPENMP=1 USE_THREAD=1 NO_LAPACK=1 DYNAMIC_ARCH=1 ONLY_CBLAS=1 NO_SHARED=1 USE_TLS=1 CC=x86_64-w64-mingw32-gcc FC=x86_64-w64-mingw32-gfortran -j$(nproc)
         continue-on-error: true
       
+      - name: Configure CMake for Windows cross-compilation
+        run: |
+          cmake -B build-windows -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+            -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+
       - name: Build Windows binary
         run: |
-          export PATH="/c/msys64/mingw64/bin:$PATH"
-          make -f Makefile.windows
-        shell: bash
+          cmake --build build-windows -j$(nproc)
       
       - name: Upload Windows binary
         uses: actions/upload-artifact@v4
         with:
           name: manganese-windows
-          path: manganese.exe
+          path: build-windows/manganese.exe
           retention-days: 7
           if-no-files-found: warn

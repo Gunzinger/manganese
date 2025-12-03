@@ -1,0 +1,156 @@
+cmake_minimum_required(VERSION 3.15)
+project(manganese C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS ON)
+
+# Build options
+option(BUILD_WITH_OPENBLAS "Build with OpenBLAS support" ON)
+
+# Platform detection
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(PLATFORM_WINDOWS ON)
+    add_definitions(-DPLATFORM_WINDOWS)
+else()
+    set(PLATFORM_UNIX ON)
+    add_definitions(-DPLATFORM_UNIX)
+endif()
+
+# Compiler flags
+set(CMAKE_C_FLAGS_RELEASE "-O3 -flto")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -masm=intel -fopenmp -std=gnu2x")
+
+# AVX512 flags
+set(AVX512_FLAGS "-mavx512f -mavx512bw -mrdrnd")
+set(AVX2_FLAGS "-mavx2 -mrdrnd")
+
+# Include directories
+include_directories(
+    ${CMAKE_SOURCE_DIR}/SIMDxorshift/include
+)
+
+if(PLATFORM_WINDOWS)
+    include_directories(${CMAKE_SOURCE_DIR}/mman-win32)
+endif()
+
+if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+    add_definitions(-DHAVE_OPENBLAS)
+    include_directories(${CMAKE_SOURCE_DIR}/OpenBLAS)
+endif()
+
+# Link libraries
+# OpenMP - handle cross-compilation
+if(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    # For MinGW cross-compilation, OpenMP is typically provided by libgomp
+    set(OpenMP_C_FOUND TRUE)
+    set(OpenMP_C_FLAGS "-fopenmp")
+    set(OpenMP_C_LIB_NAMES "gomp")
+    find_library(OpenMP_C_LIBRARY
+        NAMES ${OpenMP_C_LIB_NAMES}
+        PATHS ${CMAKE_FIND_ROOT_PATH}/lib
+        NO_DEFAULT_PATH
+    )
+    if(OpenMP_C_LIBRARY)
+        add_library(OpenMP::OpenMP_C INTERFACE IMPORTED)
+        set_target_properties(OpenMP::OpenMP_C PROPERTIES
+            INTERFACE_COMPILE_OPTIONS "${OpenMP_C_FLAGS}"
+            INTERFACE_LINK_LIBRARIES "${OpenMP_C_LIBRARY}"
+        )
+    else()
+        # Fallback: just add -fopenmp flag
+        add_library(OpenMP::OpenMP_C INTERFACE IMPORTED)
+        set_target_properties(OpenMP::OpenMP_C PROPERTIES
+            INTERFACE_COMPILE_OPTIONS "-fopenmp"
+            INTERFACE_LINK_LIBRARIES "-fopenmp"
+        )
+    endif()
+else()
+    find_package(OpenMP REQUIRED)
+endif()
+
+# Platform-specific libraries
+if(NOT PLATFORM_WINDOWS)
+    find_library(M_LIB m)
+    find_library(PTHREAD_LIB pthread)
+endif()
+
+# Source files
+set(MANGANESE_SOURCES
+    manganese.c
+    tests.c
+    hardware.c
+)
+
+# Platform-specific sources
+if(PLATFORM_WINDOWS)
+    list(APPEND MANGANESE_SOURCES mman-win32/mman.c)
+endif()
+
+# Object files with specific flags
+set(TESTS_512_SOURCE tests-512.c)
+set(TESTS_256_SOURCE tests-256.c)
+
+# SIMDxorshift library - build with AVX512
+add_library(simdxorshift128plus_obj OBJECT 
+    SIMDxorshift/src/simdxorshift128plus.c
+)
+target_compile_options(simdxorshift128plus_obj PRIVATE "-mavx512f")
+target_include_directories(simdxorshift128plus_obj PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
+
+# Build tests-512.o with AVX512
+add_library(tests_512_obj OBJECT ${TESTS_512_SOURCE})
+target_compile_options(tests_512_obj PRIVATE ${AVX512_FLAGS})
+target_include_directories(tests_512_obj PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
+if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+    target_include_directories(tests_512_obj PRIVATE ${CMAKE_SOURCE_DIR}/OpenBLAS)
+    target_compile_definitions(tests_512_obj PRIVATE HAVE_OPENBLAS)
+endif()
+
+# Build tests-256.o with AVX2
+add_library(tests_256_obj OBJECT ${TESTS_256_SOURCE})
+target_compile_options(tests_256_obj PRIVATE ${AVX2_FLAGS})
+target_include_directories(tests_256_obj PRIVATE ${CMAKE_SOURCE_DIR}/SIMDxorshift/include)
+if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+    target_include_directories(tests_256_obj PRIVATE ${CMAKE_SOURCE_DIR}/OpenBLAS)
+    target_compile_definitions(tests_256_obj PRIVATE HAVE_OPENBLAS)
+endif()
+
+# Main executable
+add_executable(manganese ${MANGANESE_SOURCES}
+    $<TARGET_OBJECTS:tests_512_obj>
+    $<TARGET_OBJECTS:tests_256_obj>
+    $<TARGET_OBJECTS:simdxorshift128plus_obj>
+)
+
+target_link_libraries(manganese 
+    OpenMP::OpenMP_C
+)
+
+if(NOT PLATFORM_WINDOWS)
+    if(M_LIB)
+        target_link_libraries(manganese ${M_LIB})
+    endif()
+    if(PTHREAD_LIB)
+        target_link_libraries(manganese ${PTHREAD_LIB})
+    endif()
+endif()
+
+if(BUILD_WITH_OPENBLAS AND EXISTS "${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a")
+    target_link_libraries(manganese ${CMAKE_SOURCE_DIR}/OpenBLAS/libopenblas.a)
+endif()
+
+# Windows-specific settings
+if(PLATFORM_WINDOWS)
+    set_target_properties(manganese PROPERTIES
+        OUTPUT_NAME "manganese"
+        SUFFIX ".exe"
+    )
+    target_link_options(manganese PRIVATE -static)
+endif()
+
+# Set output directory
+set_target_properties(manganese PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
