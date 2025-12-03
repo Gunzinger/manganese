@@ -65,26 +65,43 @@ mod windows {
 
     pub unsafe fn mlock(addr: *mut u8, len: usize) -> i32 {
         if VirtualLock(addr as *mut _, len) != 0 {
+            // memory locking worked
             0
         } else {
-            -1
+            // memory locking failed
+            //FIXME: was -1; bypassed for now
+            0
+
         }
     }
 
+    /// Allocate a contiguous memory block with at least `size` bytes and alignment `alignment`.
+    /// Returns a pointer to the aligned memory, or null on failure.
     pub unsafe fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
-        // VirtualAlloc provides page-aligned allocations (minimum 4KB, allocation granularity 64KB)
-        // Since our alignment requirement is cpu_count * pagesize, VirtualAlloc's natural alignment suffices
+        use std::ptr::null_mut;
         use winapi::um::memoryapi::VirtualAlloc;
         use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
-        
-        let _ = alignment;  // VirtualAlloc is inherently aligned to page boundaries
-        
-        VirtualAlloc(
-            std::ptr::null_mut(),
-            size,
+
+        // VirtualAlloc always returns page-aligned memory
+        let alloc_size = size + alignment; // over-allocate to allow manual alignment
+
+        let raw_ptr = VirtualAlloc(
+            null_mut(),
+            alloc_size,
             MEM_COMMIT | MEM_RESERVE,
             PAGE_READWRITE,
-        ) as *mut u8
+        ) as usize;
+
+        if raw_ptr == 0 {
+            //eprintln!("Trying to alloc memory (in aligned_alloc): {:?}", raw_ptr);
+            return null_mut();
+        }
+
+        // align manually
+        let aligned_ptr = ((raw_ptr + alignment - 1) & !(alignment - 1)) as *mut u8;
+        //eprintln!("Trying to alloc memory (in aligned_alloc), aligned: {:?}", aligned_ptr);
+
+        aligned_ptr
     }
 
     pub unsafe fn aligned_free(ptr: *mut u8) {

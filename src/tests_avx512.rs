@@ -4,8 +4,6 @@ use std::sync::atomic::AtomicU64;
 use crate::simd_xorshift::Avx512Xorshift128PlusKey;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-use crate::simd_xorshift::Avx512Xorshift128PlusKey;
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 use crate::simd_xorshift::{avx512_xorshift128plus, avx512_xorshift128plus_init};
 
 static mut CPUS: usize = 0;
@@ -133,8 +131,8 @@ pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
     let mem_usize = mem as usize;
     
     for _ in 0..2 {
-        let ones = _mm512_set1_epi8(0xFF);
-        let zeroes = _mm512_set1_epi8(0x00);
+        let ones = _mm512_set1_epi8(0xFFu8 as i8);
+        let zeroes = _mm512_set1_epi8(0x00u8 as i8);
         let chunk_size = size / CPUS;
         
         (0..CPUS).into_par_iter().rev().for_each(|i| {
@@ -206,7 +204,7 @@ pub unsafe fn avx512_random_inversions(mem: *mut u8, size: usize) {
         let pattern = avx512_xorshift128plus(&mut RNG);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
@@ -220,7 +218,7 @@ pub unsafe fn avx512_moving_inversions_left_64(mem: *mut u8, size: usize) {
             let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi64(0x0000000000000001));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -253,10 +251,10 @@ pub unsafe fn avx512_moving_inversions_left_64(mem: *mut u8, size: usize) {
 pub unsafe fn avx512_moving_inversions_right_32(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi64::<$i>(_mm512_set1_epi32(0x80000000));
+            let pattern = _mm512_srli_epi64::<$i>(_mm512_set1_epi32(0x80000000u32 as i32));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -281,10 +279,10 @@ pub unsafe fn avx512_moving_inversions_right_32(mem: *mut u8, size: usize) {
 pub unsafe fn avx512_moving_inversions_left_16(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi16(0x0001));
+            let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi16(0x0001u16 as i16));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -305,10 +303,10 @@ pub unsafe fn avx512_moving_inversions_left_16(mem: *mut u8, size: usize) {
 pub unsafe fn avx512_moving_inversions_right_8(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi64::<$i>(_mm512_set1_epi8(0x80));
+            let pattern = _mm512_srli_epi64::<$i>(_mm512_set1_epi8(0x80u8 as i8));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -327,10 +325,10 @@ pub unsafe fn avx512_moving_inversions_right_8(mem: *mut u8, size: usize) {
 pub unsafe fn avx512_moving_inversions_left_4(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi8(0x11));
+            let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi8(0x11u8 as i8));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -348,15 +346,15 @@ pub unsafe fn avx512_moving_inversions_left_4(mem: *mut u8, size: usize) {
 pub unsafe fn avx512_moving_saturations_right_16(mem: *mut u8, size: usize) {
     macro_rules! do_test {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi16::<$i>(_mm512_set1_epi16(0x8000));
+            let pattern = _mm512_srli_epi16::<$i>(_mm512_set1_epi16(0x8000u16 as i16));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let zeroes = _mm512_set1_epi8(0x00);
+            let zeroes = _mm512_set1_epi8(0x00u8 as i8);
             set_all_up(mem, size, zeroes);
             get_all_up(mem as *const u8, size, zeroes);
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let ones = _mm512_set1_epi8(0xFF);
+            let ones = _mm512_set1_epi8(0xFFu8 as i8);
             set_all_up(mem, size, ones);
             get_all_up(mem as *const u8, size, ones);
         }};
@@ -377,15 +375,15 @@ pub unsafe fn avx512_moving_saturations_right_16(mem: *mut u8, size: usize) {
 pub unsafe fn avx512_moving_saturations_left_8(mem: *mut u8, size: usize) {
     macro_rules! do_test {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi16::<$i>(_mm512_set1_epi16(0x01));
+            let pattern = _mm512_srli_epi16::<$i>(_mm512_set1_epi16(0x01u16 as i16));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let zeroes = _mm512_set1_epi8(0x00);
+            let zeroes = _mm512_set1_epi8(0x00u8 as i8);
             set_all_up(mem, size, zeroes);
             get_all_up(mem as *const u8, size, zeroes);
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let ones = _mm512_set1_epi8(0xFF);
+            let ones = _mm512_set1_epi8(0xFFu8 as i8);
             set_all_up(mem, size, ones);
             get_all_up(mem as *const u8, size, ones);
         }};
@@ -471,7 +469,7 @@ pub unsafe fn avx512_walking_1(mem: *mut u8, size: usize) {
         let pattern = _mm512_set1_epi64(pattern_val as i64);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
@@ -484,7 +482,7 @@ pub unsafe fn avx512_walking_0(mem: *mut u8, size: usize) {
         let pattern = _mm512_set1_epi64(pattern_val as i64);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
@@ -496,8 +494,8 @@ pub unsafe fn avx512_checkerboard(mem: *mut u8, size: usize) {
     let mem_usize = mem as usize;
     let chunk_size = size / CPUS;
     
-    let pattern1 = _mm512_set1_epi8(0xAA);
-    let pattern2 = _mm512_set1_epi8(0x55);
+    let pattern1 = _mm512_set1_epi8(0xAAu8 as i8);
+    let pattern2 = _mm512_set1_epi8(0x55u8 as i8);
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *mut u8;
@@ -625,7 +623,7 @@ pub unsafe fn avx512_anti_patterns(mem: *mut u8, size: usize) {
     
     for pattern_val in &patterns {
         let pattern = _mm512_set1_epi8(*pattern_val as i8);
-        let anti_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+        let anti_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
         
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
@@ -649,7 +647,7 @@ pub unsafe fn avx512_inverse_data_patterns(mem: *mut u8, size: usize) {
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
@@ -662,7 +660,7 @@ pub unsafe fn avx512_inverse_data_patterns(mem: *mut u8, size: usize) {
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
@@ -675,7 +673,7 @@ pub unsafe fn avx512_inverse_data_patterns(mem: *mut u8, size: usize) {
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
