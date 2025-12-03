@@ -234,3 +234,178 @@ void avx512_sgemm(char* const restrict mem, const size_t size) {
   }
   get_all_up(mem, size, (__m512i) zeroes);
 }
+
+// Walking-1 pattern: A single 1 bit walks through all bit positions
+// Detects stuck-at faults, coupling faults, and address decoding issues
+void avx512_walking_1(void* const restrict mem, const size_t size) {
+  for(size_t bit = 0; bit < 64; bit++) {
+    const uint64_t pattern_val = 1ULL << bit;
+    const __m512i pattern = _mm512_set1_epi64(pattern_val);
+    set_all_up(mem, size, pattern);
+    get_all_up(mem, size, pattern);
+    // Also test with inverse
+    const __m512i not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+    set_all_up(mem, size, not_pattern);
+    get_all_up(mem, size, not_pattern);
+  }
+}
+
+// Walking-0 pattern: A single 0 bit walks through all bit positions
+// Detects stuck-at-1 faults and coupling faults
+void avx512_walking_0(void* const restrict mem, const size_t size) {
+  for(size_t bit = 0; bit < 64; bit++) {
+    const uint64_t pattern_val = ~(1ULL << bit);
+    const __m512i pattern = _mm512_set1_epi64(pattern_val);
+    set_all_up(mem, size, pattern);
+    get_all_up(mem, size, pattern);
+    // Also test with inverse
+    const __m512i not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+    set_all_up(mem, size, not_pattern);
+    get_all_up(mem, size, not_pattern);
+  }
+}
+
+// Checkerboard pattern: Alternating 0xAA/0x55 pattern
+// Detects adjacent cell coupling faults and pattern sensitivity
+void avx512_checkerboard(void* const restrict mem, const size_t size) {
+  const __m512i pattern1 = _mm512_set1_epi8(0xAA);
+  const __m512i pattern2 = _mm512_set1_epi8(0x55);
+  
+  // Write checkerboard pattern
+  FOR_EACH_BLOCK_UP {
+    const __m512i pattern = ((BLOCK_IDX / 64) % 2) ? pattern1 : pattern2;
+    set(mem, BLOCK_IDX, pattern);
+  }
+  // Verify checkerboard pattern
+  FOR_EACH_BLOCK_UP {
+    const __m512i expected = ((BLOCK_IDX / 64) % 2) ? pattern1 : pattern2;
+    get(mem, BLOCK_IDX, expected);
+  }
+  
+  // Invert and test again
+  FOR_EACH_BLOCK_UP {
+    const __m512i pattern = ((BLOCK_IDX / 64) % 2) ? pattern2 : pattern1;
+    set(mem, BLOCK_IDX, pattern);
+  }
+  FOR_EACH_BLOCK_UP {
+    const __m512i expected = ((BLOCK_IDX / 64) % 2) ? pattern2 : pattern1;
+    get(mem, BLOCK_IDX, expected);
+  }
+}
+
+// Enhanced address line test: Tests address decoding with various patterns
+// Detects address decoder faults, stuck address lines, and bridging faults
+void avx512_address_line_test(void* const restrict mem, const size_t size) {
+  // Test with address as data pattern
+  FOR_EACH_BLOCK_UP {
+    const uint64_t addr_pattern = BLOCK_IDX;
+    const __m512i pattern = _mm512_set1_epi64(addr_pattern);
+    set(mem, BLOCK_IDX, pattern);
+  }
+  FOR_EACH_BLOCK_UP {
+    const uint64_t addr_pattern = BLOCK_IDX;
+    const __m512i expected = _mm512_set1_epi64(addr_pattern);
+    get(mem, BLOCK_IDX, expected);
+  }
+  
+  // Test with inverted address as data
+  FOR_EACH_BLOCK_DOWN {
+    const uint64_t addr_pattern = ~BLOCK_IDX;
+    const __m512i pattern = _mm512_set1_epi64(addr_pattern);
+    set(mem, BLOCK_IDX, pattern);
+  }
+  FOR_EACH_BLOCK_DOWN {
+    const uint64_t addr_pattern = ~BLOCK_IDX;
+    const __m512i expected = _mm512_set1_epi64(addr_pattern);
+    get(mem, BLOCK_IDX, expected);
+  }
+  
+  // Test with address XOR patterns (detects address line coupling)
+  for(size_t shift = 1; shift <= 16; shift <<= 1) {
+    FOR_EACH_BLOCK_UP {
+      const uint64_t addr_pattern = BLOCK_IDX ^ (BLOCK_IDX << shift);
+      const __m512i pattern = _mm512_set1_epi64(addr_pattern);
+      set(mem, BLOCK_IDX, pattern);
+    }
+    FOR_EACH_BLOCK_UP {
+      const uint64_t addr_pattern = BLOCK_IDX ^ (BLOCK_IDX << shift);
+      const __m512i expected = _mm512_set1_epi64(addr_pattern);
+      get(mem, BLOCK_IDX, expected);
+    }
+  }
+}
+
+// Anti-pattern test: Tests inverse patterns to detect pattern sensitivity
+// Detects faults that only occur with specific data patterns
+void avx512_anti_patterns(void* const restrict mem, const size_t size) {
+  const uint8_t patterns[] = {
+    0x00, 0xFF, 0x0F, 0xF0, 0x55, 0xAA, 0x33, 0xCC,
+    0x11, 0xEE, 0x22, 0xDD, 0x44, 0xBB, 0x66, 0x99,
+    0x77, 0x88, 0x01, 0xFE, 0x02, 0xFD, 0x04, 0xFB,
+    0x08, 0xF7, 0x10, 0xEF, 0x20, 0xDF, 0x40, 0xBF,
+    0x80, 0x7F
+  };
+  
+  for(size_t i = 0; i < sizeof(patterns) / sizeof(uint8_t); i++) {
+    const __m512i pattern = _mm512_set1_epi8(patterns[i]);
+    const __m512i anti_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+    
+    // Write pattern, verify, write anti-pattern, verify
+    set_all_up(mem, size, pattern);
+    get_all_up(mem, size, pattern);
+    set_all_up(mem, size, anti_pattern);
+    get_all_up(mem, size, anti_pattern);
+    
+    // Test with reverse order
+    set_all_down(mem, size, pattern);
+    get_all_down(mem, size, pattern);
+    set_all_down(mem, size, anti_pattern);
+    get_all_down(mem, size, anti_pattern);
+  }
+}
+
+// Inverse data patterns: Tests various inverse patterns
+// Detects data-dependent faults and pattern sensitivity issues
+void avx512_inverse_data_patterns(void* const restrict mem, const size_t size) {
+  // Test byte-level inversions
+  for(size_t byte_idx = 0; byte_idx < 8; byte_idx++) {
+    uint64_t base_pattern = 0xFFFFFFFFFFFFFFFFULL;
+    uint64_t pattern_val = base_pattern ^ (0xFFULL << (byte_idx * 8));
+    const __m512i pattern = _mm512_set1_epi64(pattern_val);
+    
+    set_all_up(mem, size, pattern);
+    get_all_up(mem, size, pattern);
+    
+    const __m512i inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+    set_all_up(mem, size, inverse);
+    get_all_up(mem, size, inverse);
+  }
+  
+  // Test word-level inversions (16-bit)
+  for(size_t word_idx = 0; word_idx < 4; word_idx++) {
+    uint64_t base_pattern = 0xFFFFFFFFFFFFFFFFULL;
+    uint64_t pattern_val = base_pattern ^ (0xFFFFULL << (word_idx * 16));
+    const __m512i pattern = _mm512_set1_epi64(pattern_val);
+    
+    set_all_up(mem, size, pattern);
+    get_all_up(mem, size, pattern);
+    
+    const __m512i inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+    set_all_up(mem, size, inverse);
+    get_all_up(mem, size, inverse);
+  }
+  
+  // Test dword-level inversions (32-bit)
+  for(size_t dword_idx = 0; dword_idx < 2; dword_idx++) {
+    uint64_t base_pattern = 0xFFFFFFFFFFFFFFFFULL;
+    uint64_t pattern_val = base_pattern ^ (0xFFFFFFFFULL << (dword_idx * 32));
+    const __m512i pattern = _mm512_set1_epi64(pattern_val);
+    
+    set_all_up(mem, size, pattern);
+    get_all_up(mem, size, pattern);
+    
+    const __m512i inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFF));
+    set_all_up(mem, size, inverse);
+    get_all_up(mem, size, inverse);
+  }
+}

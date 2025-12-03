@@ -9,7 +9,7 @@ manganese.o: manganese.c
 	$(CC) $(CFLAGS) -c manganese.c
 
 tests-512.o: tests-512.c tests-512.h OpenBLAS/libopenblas.a
-	$(CC) $(CFLAGS) -mrdrnd -mavx512bw -c tests-512.c
+	$(CC) $(CFLAGS) -mrdrnd -mavx512f -mavx512bw -c tests-512.c
 
 tests-256.o: tests-256.c tests-256.h OpenBLAS/libopenblas.a
 	$(CC) $(CFLAGS) -mrdrnd -mavx2 -c tests-256.c
