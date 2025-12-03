@@ -3,6 +3,7 @@ mod windows {
     use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, GetSystemInfo, MEMORYSTATUSEX, SYSTEM_INFO};
     use winapi::um::memoryapi::VirtualLock;
     use std::mem;
+    use std::mem::zeroed;
 
     pub struct SysInfo {
         pub totalram: usize,
@@ -33,8 +34,9 @@ mod windows {
         unsafe {
             GlobalMemoryStatusEx(&mut mem_status);
         }
-        
-        let mut sys_info = SYSTEM_INFO::default();
+
+        let mut sys_info: SYSTEM_INFO = unsafe { zeroed() };
+        //let mut sys_info = SYSTEM_INFO::default();
         unsafe {
             GetSystemInfo(&mut sys_info);
         }

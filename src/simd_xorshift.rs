@@ -61,7 +61,7 @@ pub unsafe fn avx_xorshift128plus_init(key1: u64, key2: u64, key: &mut AvxXorshi
 
 #[cfg(target_arch = "x86_64")]
 pub unsafe fn avx_xorshift128plus(key: &mut AvxXorshift128PlusKey) -> __m256i {
-    let s1 = key.part1;
+    let _s1 = key.part1;
     let s0 = key.part2;
     key.part1 = key.part2;
     

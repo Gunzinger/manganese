@@ -51,11 +51,13 @@ fn main() {
         }
         
         unsafe {
+            eprintln!("Trying to alloc memory: {}", alloc_size);
             let ptr = aligned_alloc(alignment, alloc_size);
             if ptr.is_null() {
                 continue;
             }
-            
+
+            eprintln!("Trying to alloc memory (2): {:?}", ptr);
             if mlock(ptr, alloc_size) == 0 {
                 eprintln!("Threads           : {}", cpu_count);
                 if ram_speed > 0 {

@@ -1,6 +1,7 @@
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 use std::arch::x86_64::*;
 use std::sync::atomic::AtomicU64;
+use crate::simd_xorshift::Avx512Xorshift128PlusKey;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 use crate::simd_xorshift::Avx512Xorshift128PlusKey;

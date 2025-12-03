@@ -131,8 +131,8 @@ pub unsafe fn avx2_march(mem: *mut u8, size: usize) {
     let mem_usize = mem as usize;
     
     for _ in 0..2 {
-        let ones = _mm256_set1_epi8(0xFF);
-        let zeroes = _mm256_set1_epi8(0x00);
+        let ones = _mm256_set1_epi8(0xFFu8 as i8);
+        let zeroes = _mm256_set1_epi8(0x00u8 as i8);
         let chunk_size = size / CPUS;
         
         // Down: set zeroes
@@ -209,7 +209,7 @@ pub unsafe fn avx2_random_inversions(mem: *mut u8, size: usize) {
         let pattern = avx_xorshift128plus(&mut RNG);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
@@ -222,7 +222,7 @@ pub unsafe fn avx2_moving_inversions_left_64(mem: *mut u8, size: usize) {
             let pattern = _mm256_slli_epi64::<$i>(_mm256_set1_epi64x(0x0000000000000001));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -255,10 +255,10 @@ pub unsafe fn avx2_moving_inversions_left_64(mem: *mut u8, size: usize) {
 pub unsafe fn avx2_moving_inversions_right_32(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm256_srli_epi64::<$i>(_mm256_set1_epi32(0x80000000));
+            let pattern = _mm256_srli_epi64::<$i>(_mm256_set1_epi32(0x80000000u32 as i32));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -286,7 +286,7 @@ pub unsafe fn avx2_moving_inversions_left_16(mem: *mut u8, size: usize) {
             let pattern = _mm256_slli_epi64::<$i>(_mm256_set1_epi16(0x0001));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -307,10 +307,10 @@ pub unsafe fn avx2_moving_inversions_left_16(mem: *mut u8, size: usize) {
 pub unsafe fn avx2_moving_inversions_right_8(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm256_srli_epi64::<$i>(_mm256_set1_epi8(0x80));
+            let pattern = _mm256_srli_epi64::<$i>(_mm256_set1_epi8(0x80u8 as i8));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -329,10 +329,10 @@ pub unsafe fn avx2_moving_inversions_right_8(mem: *mut u8, size: usize) {
 pub unsafe fn avx2_moving_inversions_left_4(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm256_slli_epi64::<$i>(_mm256_set1_epi8(0x11));
+            let pattern = _mm256_slli_epi64::<$i>(_mm256_set1_epi8(0x11u8 as i8));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -350,15 +350,15 @@ pub unsafe fn avx2_moving_inversions_left_4(mem: *mut u8, size: usize) {
 pub unsafe fn avx2_moving_saturations_right_16(mem: *mut u8, size: usize) {
     macro_rules! do_test {
         ($i:expr) => {{
-            let pattern = _mm256_srli_epi16::<$i>(_mm256_set1_epi16(0x8000));
+            let pattern = _mm256_srli_epi16::<$i>(_mm256_set1_epi16(0x8000u16 as i16));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let zeroes = _mm256_set1_epi8(0x00);
+            let zeroes = _mm256_set1_epi8(0x00u8 as i8);
             set_all_up(mem, size, zeroes);
             get_all_up(mem as *const u8, size, zeroes);
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let ones = _mm256_set1_epi8(0xFF);
+            let ones = _mm256_set1_epi8(0xFFu8 as i8);
             set_all_up(mem, size, ones);
             get_all_up(mem as *const u8, size, ones);
         }};
@@ -382,12 +382,12 @@ pub unsafe fn avx2_moving_saturations_left_8(mem: *mut u8, size: usize) {
             let pattern = _mm256_srli_epi16::<$i>(_mm256_set1_epi16(0x01));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let zeroes = _mm256_set1_epi8(0x00);
+            let zeroes = _mm256_set1_epi8(0x00u8 as i8);
             set_all_up(mem, size, zeroes);
             get_all_up(mem as *const u8, size, zeroes);
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let ones = _mm256_set1_epi8(0xFF);
+            let ones = _mm256_set1_epi8(0xFFu8 as i8);
             set_all_up(mem, size, ones);
             get_all_up(mem as *const u8, size, ones);
         }};
@@ -475,7 +475,7 @@ pub unsafe fn avx2_walking_1(mem: *mut u8, size: usize) {
         let pattern = _mm256_set1_epi64x(pattern_val as i64);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
@@ -488,7 +488,7 @@ pub unsafe fn avx2_walking_0(mem: *mut u8, size: usize) {
         let pattern = _mm256_set1_epi64x(pattern_val as i64);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
@@ -500,8 +500,8 @@ pub unsafe fn avx2_checkerboard(mem: *mut u8, size: usize) {
     let mem_usize = mem as usize;
     let chunk_size = size / CPUS;
     
-    let pattern1 = _mm256_set1_epi8(0xAA);
-    let pattern2 = _mm256_set1_epi8(0x55);
+    let pattern1 = _mm256_set1_epi8(0xAAu8 as i8);
+    let pattern2 = _mm256_set1_epi8(0x55u8 as i8);
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *mut u8;
@@ -629,7 +629,7 @@ pub unsafe fn avx2_anti_patterns(mem: *mut u8, size: usize) {
     
     for pattern_val in &patterns {
         let pattern = _mm256_set1_epi8(*pattern_val as i8);
-        let anti_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+        let anti_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
@@ -653,7 +653,7 @@ pub unsafe fn avx2_inverse_data_patterns(mem: *mut u8, size: usize) {
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
@@ -666,7 +666,7 @@ pub unsafe fn avx2_inverse_data_patterns(mem: *mut u8, size: usize) {
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
@@ -679,7 +679,7 @@ pub unsafe fn avx2_inverse_data_patterns(mem: *mut u8, size: usize) {
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFF));
+        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
