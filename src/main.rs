@@ -51,13 +51,12 @@ fn main() {
         }
         
         unsafe {
-            eprintln!("Trying to alloc memory: {}", alloc_size);
+            //eprintln!("Trying to alloc memory: {}", alloc_size);
             let ptr = aligned_alloc(alignment, alloc_size);
             if ptr.is_null() {
                 continue;
             }
 
-            eprintln!("Trying to alloc memory (2): {:?}", ptr);
             if mlock(ptr, alloc_size) == 0 {
                 eprintln!("Threads           : {}", cpu_count);
                 if ram_speed > 0 {
@@ -87,6 +86,7 @@ fn main() {
                 size = alloc_size;
                 break;
             } else {
+                eprintln!("Failed to mlock memory, try root (linux) or granting SeLockMemoryPrivilege (windows)!");
                 aligned_free(ptr);
             }
         }

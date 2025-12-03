@@ -61,38 +61,67 @@ pub fn hardware_instruction_set() -> InstructionSet {
     }
 }
 
-pub fn hardware_ram_speed(_configured: bool) -> u64 {
-    #[cfg(target_os = "linux")]
-    {
-        use std::fs;
-        
-        let glob_pattern = "/sys/firmware/dmi/entries/17-*/raw";
-        let entries = match glob::glob(glob_pattern) {
-            Ok(entries) => entries,
-            Err(_) => return 0,
-        };
-        
-        for entry in entries.flatten() {
-            if let Ok(mut file) = fs::File::open(&entry) {
-                use std::io::{Seek, Read, SeekFrom};
-                let offset = if _configured { 0x20 } else { 0x15 };
-                if file.seek(SeekFrom::Start(offset as u64)).is_ok() {
-                    let mut buf = [0u8; 2];
-                    if file.read_exact(&mut buf).is_ok() {
-                        let ram_speed = u16::from_le_bytes(buf);
-                        if ram_speed > 0 {
-                            return ram_speed as u64;
-                        }
+#[cfg(target_os = "linux")]
+pub fn hardware_ram_speed(configured: bool) -> u64 {
+    use std::fs;
+    use std::io::{Read, Seek, SeekFrom};
+    use glob::glob;
+
+    let glob_pattern = "/sys/firmware/dmi/entries/17-*/raw";
+    let entries = match glob(glob_pattern) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+
+    for entry in entries.flatten() {
+        if let Ok(mut file) = fs::File::open(&entry) {
+            let offset = if configured { 0x20 } else { 0x15 };
+            if file.seek(SeekFrom::Start(offset as u64)).is_ok() {
+                let mut buf = [0u8; 2];
+                if file.read_exact(&mut buf).is_ok() {
+                    let ram_speed = u16::from_le_bytes(buf);
+                    if ram_speed > 0 {
+                        return ram_speed as u64;
                     }
                 }
             }
         }
-        0
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        0
+
+    0
+}
+
+#[cfg(target_os = "windows")]
+pub fn hardware_ram_speed(_configured: bool) -> u64 {
+    use wmi::{WMIConnection};
+    use serde::Deserialize;
+
+    #[derive(Deserialize, Debug)]
+    struct PhysicalMemory {
+        Speed: Option<u32>, // Configured speed in MHz
     }
+
+    let wmi_con = match WMIConnection::new() {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+
+    let results: Vec<PhysicalMemory> = match wmi_con.raw_query("SELECT Speed FROM Win32_PhysicalMemory") {
+        Ok(res) => res,
+        Err(_) => return 0,
+    };
+
+    results
+        .into_iter()
+        .filter_map(|r| r.Speed)
+        .max()
+        .map(|s| s as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub fn hardware_ram_speed(_configured: bool) -> u64 {
+    0
 }
 
 pub fn hardware_cpu_count() -> usize {
