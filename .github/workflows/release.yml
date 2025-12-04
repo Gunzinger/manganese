@@ -214,7 +214,7 @@ jobs:
         run: |
           chmod +x ./ci/remaster-tinycore.sh
           ./ci/remaster-tinycore.sh \
-            --iso-url "https://tinycorelinux.net/16.x/x86_64/release/TinyCorePure64-current.iso" \
+            --iso-url "http://tinycorelinux.net/16.x/x86_64/release/TinyCorePure64-current.iso" \
             --bins-dir $(realpath build_bins) \
             --out-iso "tinycore-manganese-${{ needs.create_release.outputs.version }}.iso"
 
