@@ -266,9 +266,9 @@ mod cpuid {
 
 
 // ---
-// smb_info_extended.rs
-// Cross-platform (Linux + Windows) SMBIOS parser with improved channel detection,
-// empty-slot handling, CPU trimming and cache/core/thread info, and helpers.
+// smb_info_final.rs
+// Cross-platform SMBIOS parser with correct core/thread counts, cache parsing, channel inferencing,
+// and display that omits unpopulated memory slots & empty Type 16 arrays.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -277,8 +277,8 @@ use std::fmt;
 pub struct SystemInfo {
     pub cpu: Option<CpuInfo>,
     pub board: Option<BoardInfo>,
-    pub memory_devices: Vec<MemoryInfo>, // includes empty slots (populated == false)
-    /// declared number of devices in Memory Array (SMBIOS Type 16; may be 0)
+    pub memory_devices: Vec<MemoryInfo>, // includes recorded slots (populated flag indicates presence)
+    /// declared number of devices in Memory Array (SMBIOS Type 16; None if not present or zero)
     pub memory_array_slots: Option<u8>,
 }
 
@@ -288,13 +288,12 @@ pub struct CpuInfo {
     pub version: String,
     pub family: u8,
     pub socket: String,
-    pub core_count: u16,
-    pub thread_count: u16,
+    pub core_count: u32,
+    pub thread_count: u32,
     pub l1_cache_kb: u32,
     pub l2_cache_kb: u32,
     pub l3_cache_kb: u32,
-
-    // internal: handles referenced in Type 4 for caches
+    // internal cache handles from Type 4 (0x1A/0x1C/0x1E)
     l1_handle: u16,
     l2_handle: u16,
     l3_handle: u16,
@@ -310,23 +309,21 @@ pub struct BoardInfo {
 
 #[derive(Debug, Default, Clone)]
 pub struct MemoryInfo {
-    /// Speed field from Type 17 (in MHz)
     pub speed: u16,
-    /// Configured Speed field from Type 17 (in MHz)
     pub configured_speed: u16,
     pub manufacturer: String,
     pub part_number: String,
     pub serial: String,
-    /// Size in MB (0 means empty/unpopulated or unknown)
+    /// Size in MB (0 -> not populated / unknown)
     pub size_mb: u32,
     pub locator: String,
-    /// slot index parsed from locator when available (e.g., "DIMM 0" -> 0)
+    /// trailing numeric index from locator if present e.g. "DIMM 0" -> Some(0)
     pub slot_index: Option<u8>,
-    /// assigned channel index (0-based). This is computed after all devices parsed.
+    /// zero-based channel index assigned by algorithm
     pub channel_index: Option<usize>,
-    /// human channel name (computed, e.g., "Channel A" or "Channel 0")
+    /// friendly channel name (e.g. "Channel A")
     pub channel_name: Option<String>,
-    /// whether the slot is populated (size_mb > 0 or a non-empty manufacturer)
+    /// whether slot is populated (size or manufacturer indicates)
     pub populated: bool,
 }
 
@@ -347,41 +344,72 @@ impl fmt::Display for SystemInfo {
             writeln!(f, "Board: <unknown>")?;
         }
 
-        //writeln!(f, "Memory Array slots (Type 16): {:?}", self.memory_array_slots)?;
+        // Only show memory_array_slots if present and > 0
+        if let Some(n) = self.memory_array_slots {
+            if n > 0 {
+                writeln!(f, "Memory Array slots (Type 16): {}", n)?;
+            }
+        }
 
-        let populated = self.memory_devices.iter().filter(|m| m.populated).count();
-        writeln!(f, "Memory devices recorded: {} (populated: {})", self.memory_devices.len(), populated)?;
-
-        // show channels
+        // channels and slots - do not print unpopulated slots; only show populated DIMMs
         let channels = self.memory_channels();
-        writeln!(f, "Channels observed: {}", channels.len())?;
-        for (ch_name, slots) in channels {
-            writeln!(f, " {}:", ch_name)?;
-            for (i, m) in slots.iter().enumerate() {
-                writeln!(f, "  Slot {}: {}MB {}MHz (configured {}MHz) Locator: {} Populated: {}",
-                         i+1, m.size_mb, m.speed, m.configured_speed, m.locator, m.populated)?;
-                if !m.manufacturer.is_empty() {
-                    writeln!(f, "   Manufacturer: {} Part: {} Serial: {}", m.manufacturer, m.part_number, m.serial)?;
+        let populated_channels = self.populated_channels();
+        if !channels.is_empty() {
+            writeln!(f, "Channels observed: {} (populated: {})", channels.len(), populated_channels)?;
+            for (ch_name, slots) in channels {
+                // show only populated slots for output
+                let populated_slots: Vec<&MemoryInfo> = slots.iter().filter(|s| s.populated).cloned().collect();
+                if populated_slots.is_empty() {
+                    // skip printing empty channels entirely
+                    continue;
+                }
+                writeln!(f, " {}:", ch_name)?;
+                for (i, m) in populated_slots.iter().enumerate() {
+                    writeln!(
+                        f,
+                        "  Slot {}: {}MB @ {}MHz (configured {}MHz) Locator: {}",
+                        i + 1,
+                        m.size_mb,
+                        m.speed,
+                        m.configured_speed,
+                        m.locator
+                    )?;
+                    if !m.manufacturer.is_empty() {
+                        writeln!(f, "   Manufacturer: {}  Part: {}  Serial: {}", m.manufacturer, m.part_number, m.serial)?;
+                    }
                 }
             }
+        } else {
+            writeln!(f, "Memory: <none discovered>")?;
         }
 
         Ok(())
     }
 }
 
-/////////////////////
-// Helpers
-/////////////////////
+/////////////////////////////////////
+// small helpers (string cleaning, ub readers)
+/////////////////////////////////////
 
 fn clean_opt_string(s: Option<String>) -> String {
-    s.unwrap_or_default()
-        .trim()
-        .trim_end_matches(char::from(0))
-        .to_string()
+    s.unwrap_or_default().trim().trim_end_matches(char::from(0)).to_string()
 }
 
-/// Return SMBIOS string referenced by `index` (1-based) for structure starting at `struct_start` in `buf`.
+fn le_u16_at(buf: &[u8], idx: usize) -> u16 {
+    let a = *buf.get(idx).unwrap_or(&0);
+    let b = *buf.get(idx + 1).unwrap_or(&0);
+    u16::from_le_bytes([a, b])
+}
+
+fn le_u32_at(buf: &[u8], idx: usize) -> u32 {
+    let a = *buf.get(idx).unwrap_or(&0);
+    let b = *buf.get(idx + 1).unwrap_or(&0);
+    let c = *buf.get(idx + 2).unwrap_or(&0);
+    let d = *buf.get(idx + 3).unwrap_or(&0);
+    u32::from_le_bytes([a, b, c, d])
+}
+
+/// read SMBIOS string referenced by index (1-based) from structure at struct_start
 fn get_smbios_string(buf: &[u8], struct_start: usize, index: u8) -> Option<String> {
     if index == 0 {
         return None;
@@ -391,7 +419,6 @@ fn get_smbios_string(buf: &[u8], struct_start: usize, index: u8) -> Option<Strin
     if p >= buf.len() {
         return None;
     }
-
     let mut cur = 1u8;
     while p < buf.len() {
         let mut end = p;
@@ -410,6 +437,7 @@ fn get_smbios_string(buf: &[u8], struct_start: usize, index: u8) -> Option<Strin
     None
 }
 
+/// advance to next structure (skip formatted area + strings)
 fn smb_next_structure(buf: &[u8], offset: usize) -> Option<usize> {
     let len = *buf.get(offset + 1)? as usize;
     let mut next = offset + len;
@@ -422,25 +450,17 @@ fn smb_next_structure(buf: &[u8], offset: usize) -> Option<usize> {
     None
 }
 
-fn le_u16_at(buf: &[u8], idx: usize) -> u16 {
-    let a = *buf.get(idx).unwrap_or(&0);
-    let b = *buf.get(idx + 1).unwrap_or(&0);
-    u16::from_le_bytes([a, b])
-}
-
-/////////////////////
-// Parsers for structures
-/////////////////////
+/////////////////////////////////////
+// parsers for individual SMBIOS types
+/////////////////////////////////////
 
 fn parse_type17(buf: &[u8], offset: usize) -> Option<MemoryInfo> {
     let struct_len = *buf.get(offset + 1)? as usize;
-    if offset + struct_len > buf.len() {
-        return None;
-    }
+    if offset + struct_len > buf.len() { return None; }
 
-    let size_field = le_u16_at(buf, offset + 0x0C);
-    // SMBIOS uses 0 or 0xFFFF to indicate no module installed or unknown.
-    let size_mb = if size_field == 0 || size_field == 0xFFFF { 0 } else { size_field as u32 };
+    // size at 0x0C (word). 0 or 0xFFFF => not present/unknown
+    let size_word = le_u16_at(buf, offset + 0x0C);
+    let size_mb = if size_word == 0 || size_word == 0xFFFF { 0 } else { size_word as u32 };
 
     let locator_idx = *buf.get(offset + 0x10).unwrap_or(&0);
     let manufacturer_idx = *buf.get(offset + 0x17).unwrap_or(&0);
@@ -472,51 +492,63 @@ fn parse_type17(buf: &[u8], offset: usize) -> Option<MemoryInfo> {
     })
 }
 
-/// tries to pull a trailing decimal number from locator, e.g. "DIMM 0" -> Some(0), "A1" -> Some(1)
+/// try to parse trailing numeric slot index from locator string, e.g. "DIMM 0" -> Some(0), "A1" -> Some(1)
 fn parse_slot_index(locator: &str) -> Option<u8> {
-    // find trailing digits
     let s = locator.trim();
-    let mut digits_rev = String::new();
+    // collect trailing digits
+    let mut rev = String::new();
     for ch in s.chars().rev() {
         if ch.is_ascii_digit() {
-            digits_rev.push(ch);
+            rev.push(ch);
         } else {
             break;
         }
     }
-    if digits_rev.is_empty() {
-        // try single-letter like A1 -> take trailing char if digit
-        return None;
-    }
-    let digits: String = digits_rev.chars().rev().collect();
+    if rev.is_empty() { return None; }
+    let digits: String = rev.chars().rev().collect();
     digits.parse::<u8>().ok()
 }
 
+fn parse_type2(buf: &[u8], offset: usize) -> Option<BoardInfo> {
+    let man = *buf.get(offset + 0x04).unwrap_or(&0);
+    let prod = *buf.get(offset + 0x05).unwrap_or(&0);
+    let ver = *buf.get(offset + 0x06).unwrap_or(&0);
+    let ser = *buf.get(offset + 0x07).unwrap_or(&0);
+    Some(BoardInfo {
+        manufacturer: clean_opt_string(get_smbios_string(buf, offset, man)),
+        product: clean_opt_string(get_smbios_string(buf, offset, prod)),
+        version: clean_opt_string(get_smbios_string(buf, offset, ver)),
+        serial: clean_opt_string(get_smbios_string(buf, offset, ser)),
+    })
+}
+
+/// parse Processor (Type 4). Note: core/thread counts are bytes at offsets 0x23 and 0x25 (per SMBIOS spec).
+/// L1/L2/L3 cache handles are words at offsets 0x1A,0x1C,0x1E respectively.
 fn parse_type4(buf: &[u8], offset: usize) -> Option<CpuInfo> {
-    // Offsets:
-    // 0x04 = socket (string), 0x06 = family (byte), 0x07 = manufacturer (string ref),
-    // 0x10 = version (string ref)
+    let struct_len = *buf.get(offset + 1)? as usize;
+    if offset + struct_len > buf.len() { return None; }
+
     let socket_idx = *buf.get(offset + 0x04).unwrap_or(&0);
     let family = *buf.get(offset + 0x06).unwrap_or(&0);
     let manufacturer_idx = *buf.get(offset + 0x07).unwrap_or(&0);
     let version_idx = *buf.get(offset + 0x10).unwrap_or(&0);
 
-    // cache handle references: word values at offsets commonly 0x12, 0x14, 0x16
-    let l1_handle = le_u16_at(buf, offset + 0x12);
-    let l2_handle = le_u16_at(buf, offset + 0x14);
-    let l3_handle = le_u16_at(buf, offset + 0x16);
+    // cache handles at 0x1A/0x1C/0x1E (word)
+    let l1_handle = le_u16_at(buf, offset + 0x1A);
+    let l2_handle = le_u16_at(buf, offset + 0x1C);
+    let l3_handle = le_u16_at(buf, offset + 0x1E);
 
-    // core/thread counts may be present at 0x23 and 0x25 (SMBIOS 2.7+), read if available
-    let core_count = le_u16_at(buf, offset + 0x23);
-    let thread_count = le_u16_at(buf, offset + 0x25);
+    // core/thread counts are bytes at offsets 0x23 and 0x25 (SMBIOS 2.5+). If 0 => unknown -> fallback later.
+    let core_count_b = *buf.get(offset + 0x23).unwrap_or(&0);
+    let thread_count_b = *buf.get(offset + 0x25).unwrap_or(&0);
 
     Some(CpuInfo {
         manufacturer: clean_opt_string(get_smbios_string(buf, offset, manufacturer_idx)),
         version: clean_opt_string(get_smbios_string(buf, offset, version_idx)),
         family,
         socket: clean_opt_string(get_smbios_string(buf, offset, socket_idx)),
-        core_count,
-        thread_count,
+        core_count: if core_count_b == 0 || core_count_b == 0xFF { 0 } else { core_count_b as u32 },
+        thread_count: if thread_count_b == 0 || thread_count_b == 0xFF { 0 } else { thread_count_b as u32 },
         l1_cache_kb: 0,
         l2_cache_kb: 0,
         l3_cache_kb: 0,
@@ -526,37 +558,192 @@ fn parse_type4(buf: &[u8], offset: usize) -> Option<CpuInfo> {
     })
 }
 
-fn parse_type2(buf: &[u8], offset: usize) -> Option<BoardInfo> {
-    let man = *buf.get(offset + 0x04).unwrap_or(&0);
-    let prod = *buf.get(offset + 0x05).unwrap_or(&0);
-    let ver = *buf.get(offset + 0x06).unwrap_or(&0);
-    let ser = *buf.get(offset + 0x07).unwrap_or(&0);
-
-    Some(BoardInfo {
-        manufacturer: clean_opt_string(get_smbios_string(buf, offset, man)),
-        product: clean_opt_string(get_smbios_string(buf, offset, prod)),
-        version: clean_opt_string(get_smbios_string(buf, offset, ver)),
-        serial: clean_opt_string(get_smbios_string(buf, offset, ser)),
-    })
-}
-
+/// parse Type 16 (Memory Array) NumberOfDevices at offset 0x0E (byte)
 fn parse_type16(buf: &[u8], offset: usize) -> Option<u8> {
     Some(*buf.get(offset + 0x0E).unwrap_or(&0))
 }
 
-/// parse Type 7 (Cache Information) and return (structure_handle, installed_size_kb)
-fn parse_type7(buf: &[u8], offset: usize) -> Option<(u16, u32)> {
-    // structure handle is at offset+2
+/// parse Type 7 (Cache Information)
+/// return (structure_handle, installed_kb, cache_level)
+/// - handle is word at offset+2
+/// - installed size word at offset+9 (word). bit15 = granularity (0 => 1KB units, 1 => 64KB units)
+/// - cache level is in Cache Configuration bits 2:0 (located at offset+5 bits 2:0 per spec)
+fn parse_type7(buf: &[u8], offset: usize) -> Option<(u16, u32, u8)> {
+    let struct_len = *buf.get(offset + 1)? as usize;
+    if offset + struct_len > buf.len() { return None; }
+
     let handle = le_u16_at(buf, offset + 2);
-    // Installed Size is often stored at offset 0x05..0x06 as a word
-    let installed_kb = le_u16_at(buf, offset + 0x05) as u32;
-    // Some SMBIOS variants use special encodings; we return what we get (best-effort)
-    Some((handle, installed_kb))
+    // Cache Configuration at offset 0x05 (word) — bits 2:0 indicate cache level (1..8)
+    let cache_config = le_u16_at(buf, offset + 0x05);
+    let cache_level = (cache_config & 0x7) as u8; // bits 2:0
+
+    // Installed Size at offset 0x09 (word) for SMBIOS 2.x; for 3.x it may be extended, but we handle the common word.
+    let installed_word = le_u16_at(buf, offset + 0x09);
+
+    if installed_word == 0 {
+        // no cache installed -> size 0
+        return Some((handle, 0, cache_level));
+    }
+
+    let granularity = (installed_word & 0x8000) != 0;
+    let raw = (installed_word & 0x7FFF) as u32;
+    // If granularity == 0 => units are kilobytes; if granularity == 1 => units are 64 KB blocks
+    let size_kb = if granularity { raw * 64 } else { raw };
+
+    Some((handle, size_kb, cache_level))
 }
 
-/////////////////////
-// Platform-specific SMBIOS consumption
-/////////////////////
+///////////////////////////////////////////
+// Shared helpers (DRY): channel assignment + cache mapping
+///////////////////////////////////////////
+
+/// Assign channel indices & names to the memory devices inside SystemInfo.
+/// Algorithm:
+/// - For each slot_index value (the trailing number parsed from the locator), count how many times it occurs.
+/// - The maximum occurrences across slot indices determines number of channels.
+/// - For each MemoryInfo with slot_index = N, assign it to channel = occurrence_index (0-based),
+///   i.e. the 1st DIMM N -> channel 0, 2nd DIMM N -> channel 1, etc.
+/// - For locators without numeric indices, group by locator string and apply the same N-th-occurrence rule.
+fn assign_memory_channels(sys: &mut SystemInfo) {
+    let mut counts_by_slot: HashMap<u8, usize> = HashMap::new();
+    let mut counts_by_name: HashMap<String, usize> = HashMap::new();
+
+    // first pass: counts
+    for m in &sys.memory_devices {
+        if let Some(idx) = m.slot_index {
+            *counts_by_slot.entry(idx).or_insert(0) += 1;
+        } else {
+            *counts_by_name.entry(m.locator.clone()).or_insert(0) += 1;
+        }
+    }
+
+    // compute maximum channels
+    let mut max_channels = counts_by_slot.values().copied().max().unwrap_or(0);
+    max_channels = max_channels.max(counts_by_name.values().copied().max().unwrap_or(0));
+    if max_channels == 0 {
+        max_channels = 1;
+    }
+
+    // second pass: assign occurrence order
+    let mut seen_slot: HashMap<u8, usize> = HashMap::new();
+    let mut seen_name: HashMap<String, usize> = HashMap::new();
+
+    for m in sys.memory_devices.iter_mut() {
+        let ch = if let Some(idx) = m.slot_index {
+            let occ = seen_slot.entry(idx).or_insert(0);
+            let ch = *occ;
+            *occ += 1;
+            ch
+        } else {
+            let key = m.locator.clone();
+            let occ = seen_name.entry(key.clone()).or_insert(0);
+            let ch = *occ;
+            *occ += 1;
+            ch
+        };
+        m.channel_index = Some(ch);
+        let name = if max_channels <= 26 {
+            let letter = (b'A' + (ch as u8)).min(b'Z') as char;
+            format!("Channel {}", letter)
+        } else {
+            format!("Channel {}", ch)
+        };
+        m.channel_name = Some(name);
+    }
+}
+
+/// Build map of cache handle -> (size_kb, level)
+fn build_cache_map(buf: &[u8]) -> HashMap<u16, (u32, u8)> {
+    let mut offset = 0usize;
+    let mut map = HashMap::new();
+    while offset + 4 <= buf.len() {
+        let typ = buf[offset];
+        let len = buf[offset + 1] as usize;
+        if len == 0 { break; }
+        if offset + len > buf.len() { break; }
+
+        if typ == 7 {
+            if let Some((handle, size_kb, level)) = parse_type7(buf, offset) {
+                map.insert(handle, (size_kb, level));
+            }
+        }
+
+        if let Some(next) = smb_next_structure(buf, offset) {
+            offset = next;
+        } else {
+            break;
+        }
+    }
+    map
+}
+
+/// Map cache sizes from cache_map into sys.cpu by matching cache handles (Type4 -> Type7).
+fn apply_cache_handles(sys: &mut SystemInfo, cache_map: &HashMap<u16, (u32, u8)>) {
+    if let Some(cpu) = sys.cpu.as_mut() {
+        if cpu.l1_handle != 0 && cpu.l1_handle != 0xFFFF {
+            if let Some(&(size_kb, _lv)) = cache_map.get(&cpu.l1_handle) {
+                cpu.l1_cache_kb = size_kb;
+            }
+        }
+        if cpu.l2_handle != 0 && cpu.l2_handle != 0xFFFF {
+            if let Some(&(size_kb, _lv)) = cache_map.get(&cpu.l2_handle) {
+                cpu.l2_cache_kb = size_kb;
+            }
+        }
+        if cpu.l3_handle != 0 && cpu.l3_handle != 0xFFFF {
+            if let Some(&(size_kb, _lv)) = cache_map.get(&cpu.l3_handle) {
+                cpu.l3_cache_kb = size_kb;
+            }
+        }
+    }
+}
+
+/// If CPU core/thread counts are missing, try OS fallbacks (Linux: /proc/cpuinfo; generic: available_parallelism).
+fn cpu_counts_fallback(cpu: &mut CpuInfo) {
+    if cpu.core_count == 0 || cpu.thread_count == 0 {
+        // Try platform-generic thread count fallback
+        if cpu.thread_count == 0 {
+            if let Ok(n) = std::thread::available_parallelism() {
+                cpu.thread_count = n.get() as u32;
+            }
+        }
+        // On Linux prefer /proc/cpuinfo to estimate core count (best-effort)
+        #[cfg(target_os = "linux")]
+        {
+            use std::collections::HashSet;
+            use std::fs;
+            if cpu.core_count == 0 {
+                if let Ok(s) = fs::read_to_string("/proc/cpuinfo") {
+                    let mut physical_cores: HashSet<(String, String)> = HashSet::new();
+                    let mut cur_phys = String::new();
+                    let mut cur_core = String::new();
+                    for line in s.lines() {
+                        if line.starts_with("physical id") {
+                            if let Some(pos) = line.find(':') {
+                                cur_phys = line[pos+1..].trim().to_string();
+                            }
+                        } else if line.starts_with("core id") {
+                            if let Some(pos) = line.find(':') {
+                                cur_core = line[pos+1..].trim().to_string();
+                                physical_cores.insert((cur_phys.clone(), cur_core.clone()));
+                            }
+                        }
+                    }
+                    if !physical_cores.is_empty() {
+                        cpu.core_count = physical_cores.len() as u32;
+                    } else if cpu.thread_count > 0 {
+                        // fallback assume SMT=2 when thread_count >=2
+                        cpu.core_count = std::cmp::max(1, cpu.thread_count / 2);
+                    }
+                }
+            }
+        }
+    }
+}
+
+///////////////////////////////////////////
+// Platform-specific SMBIOS reading & tie together
+///////////////////////////////////////////
 
 #[cfg(target_os = "linux")]
 mod platform {
@@ -565,7 +752,7 @@ mod platform {
     use std::fs::File;
     use std::io::Read;
 
-    fn read_sys_dmi_entries() -> Option<Vec<u8>> {
+    fn read_all_dmi_entries() -> Option<Vec<u8>> {
         let mut buffer = Vec::new();
         let pattern = "/sys/firmware/dmi/entries/*/raw";
         let entries = glob(pattern).ok()?;
@@ -577,84 +764,15 @@ mod platform {
                 }
             }
         }
-        if buffer.is_empty() {
-            None
-        } else {
-            Some(buffer)
-        }
-    }
-
-    fn fallback_cpu_counts(cpu: &mut CpuInfo) {
-        // If SMBIOS didn't provide core/thread counts, try /proc/cpuinfo for a decent fallback.
-        use std::fs;
-        if cpu.core_count == 0 || cpu.thread_count == 0 {
-            if let Ok(contents) = fs::read_to_string("/proc/cpuinfo") {
-                let mut processor_count = 0u16;
-                let mut cores_per_physical: Option<u16> = None;
-                let mut current_physical = None::<String>;
-                let mut core_ids: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
-
-                for line in contents.lines() {
-                    if line.starts_with("processor") {
-                        processor_count += 1;
-                    }
-                    if let Some(pos) = line.find(':') {
-                        let key = line[..pos].trim();
-                        let val = line[pos+1..].trim().to_string();
-                        if key == "physical id" {
-                            current_physical = Some(val.clone());
-                        } else if key == "cpu cores" {
-                            if let Ok(v) = val.parse::<u16>() {
-                                cores_per_physical = Some(v);
-                            }
-                        } else if key == "core id" {
-                            if let Some(pid) = current_physical.clone() {
-                                core_ids.entry(pid).or_default().insert(val);
-                            }
-                        }
-                    }
-                }
-
-                if cpu.thread_count == 0 {
-                    cpu.thread_count = processor_count;
-                }
-                if cpu.core_count == 0 {
-                    if let Some(v) = cores_per_physical {
-                        cpu.core_count = v;
-                    } else {
-                        // try using core_ids
-                        let mut cores_total = 0u16;
-                        for set in core_ids.values() {
-                            cores_total = cores_total.saturating_add(set.len() as u16);
-                        }
-                        if cores_total > 0 {
-                            cpu.core_count = cores_total;
-                        } else if cpu.thread_count > 0 {
-                            // fall back: assume 1 thread per core (best-effort)
-                            cpu.core_count = cpu.thread_count;
-                        }
-                    }
-                }
-            } else {
-                // fallback to logical concurrency for threads
-                if cpu.thread_count == 0 {
-                    if let Ok(n) = std::thread::available_parallelism() {
-                        cpu.thread_count = n.get() as u16;
-                    }
-                }
-            }
-        }
+        if buffer.is_empty() { None } else { Some(buffer) }
     }
 
     pub fn collect_system_info() -> SystemInfo {
         let mut sys = SystemInfo::default();
-        let buf = match read_sys_dmi_entries() {
-            Some(b) => b,
-            None => return sys,
-        };
+        let buf = match read_all_dmi_entries() { Some(b) => b, None => return sys };
 
-        // temporary cache map: handle -> size_kb
-        let mut cache_map: HashMap<u16, u32> = HashMap::new();
+        // build cache map first (Type 7)
+        let cache_map = build_cache_map(&buf);
 
         let mut offset = 0usize;
         while offset + 4 <= buf.len() {
@@ -664,9 +782,9 @@ mod platform {
             if offset + len > buf.len() { break; }
 
             match typ {
-                17 => {
-                    if let Some(m) = parse_type17(&buf, offset) {
-                        sys.memory_devices.push(m);
+                2 => {
+                    if sys.board.is_none() {
+                        sys.board = parse_type2(&buf, offset);
                     }
                 }
                 4 => {
@@ -674,19 +792,17 @@ mod platform {
                         sys.cpu = parse_type4(&buf, offset);
                     }
                 }
-                2 => {
-                    if sys.board.is_none() {
-                        sys.board = parse_type2(&buf, offset);
-                    }
-                }
                 16 => {
+                    // If NumberOfDevices == 0 => treat as not present per request
                     if sys.memory_array_slots.is_none() {
-                        sys.memory_array_slots = parse_type16(&buf, offset);
+                        if let Some(n) = parse_type16(&buf, offset) {
+                            if n > 0 { sys.memory_array_slots = Some(n); }
+                        }
                     }
                 }
-                7 => { // cache info
-                    if let Some((handle, size_kb)) = parse_type7(&buf, offset) {
-                        cache_map.insert(handle, size_kb);
+                17 => {
+                    if let Some(m) = parse_type17(&buf, offset) {
+                        sys.memory_devices.push(m);
                     }
                 }
                 _ => {}
@@ -699,96 +815,18 @@ mod platform {
             }
         }
 
-        // assign caches to cpu if handles found
-        if let Some(cpu) = sys.cpu.as_mut() {
-            if cpu.l1_handle != 0 {
-                if let Some(&s) = cache_map.get(&cpu.l1_handle) {
-                    cpu.l1_cache_kb = s;
-                }
-            }
-            if cpu.l2_handle != 0 {
-                if let Some(&s) = cache_map.get(&cpu.l2_handle) {
-                    cpu.l2_cache_kb = s;
-                }
-            }
-            if cpu.l3_handle != 0 {
-                if let Some(&s) = cache_map.get(&cpu.l3_handle) {
-                    cpu.l3_cache_kb = s;
-                }
-            }
+        // apply cache sizes to CPU
+        apply_cache_handles(&mut sys, &cache_map);
 
-            // if core/thread counts are missing, try fallback
-            fallback_cpu_counts(cpu);
+        // CPU fallback counts
+        if let Some(cpu) = sys.cpu.as_mut() {
+            cpu_counts_fallback(cpu);
         }
 
-        // Assign channels from memory_devices using the improved algorithm:
+        // assign memory channels
         assign_memory_channels(&mut sys);
 
         sys
-    }
-
-    /// assign channel indices and human-readable names
-    fn assign_memory_channels(sys: &mut SystemInfo) {
-        // occ_counter per slot_index -> how many seen so far
-        let mut occ_counter: HashMap<u8, usize> = HashMap::new();
-        // Also track the case where slot_index is None (use locator string hashing)
-        let mut unnamed_counter: HashMap<String, usize> = HashMap::new();
-
-        // first pass: count occurrences per slot index to determine channel count
-        for m in &sys.memory_devices {
-            if let Some(idx) = m.slot_index {
-                *occ_counter.entry(idx).or_insert(0) += 1;
-            } else {
-                let key = m.locator.clone();
-                *unnamed_counter.entry(key).or_insert(0) += 1;
-            }
-        }
-
-        // channel count is max of occurrences for any slot_index or unnamed highest
-        let mut max_channels = 0usize;
-        for &v in occ_counter.values() { if v > max_channels { max_channels = v; } }
-        for &v in unnamed_counter.values() { if v > max_channels { max_channels = v; } }
-        if max_channels == 0 {
-            max_channels = 1; // at least one channel by default
-        }
-
-        // second pass: assign each device a channel index based on the occurrence index within its slot_index
-        let mut seen_counter: HashMap<u8, usize> = HashMap::new();
-        let mut seen_unnamed: HashMap<String, usize> = HashMap::new();
-
-        for m in sys.memory_devices.iter_mut() {
-            if let Some(idx) = m.slot_index {
-                let occ = seen_counter.entry(idx).or_insert(0);
-                let ch = *occ;
-                *occ += 1;
-                m.channel_index = Some(ch);
-            } else {
-                let key = m.locator.clone();
-                let occ = seen_unnamed.entry(key.clone()).or_insert(0);
-                let ch = *occ;
-                *occ += 1;
-                m.channel_index = Some(ch);
-            }
-            // compute a friendly name (A, B, C... if channels <= 26)
-            if let Some(ch_idx) = m.channel_index {
-                let ch_name = if max_channels <= 26 {
-                    // map 0->A, 1->B ...
-                    let letter = (b'A' + (ch_idx as u8)).min(b'Z') as char;
-                    format!("Channel {}", letter)
-                } else {
-                    format!("Channel {}", ch_idx)
-                };
-                m.channel_name = Some(ch_name);
-            }
-        }
-
-        // Ensure every channel has at least a name for empty slots: fill None -> default name
-        for m in sys.memory_devices.iter_mut() {
-            if m.channel_name.is_none() {
-                m.channel_index = Some(0);
-                m.channel_name = Some("Channel A".to_string());
-            }
-        }
     }
 }
 
@@ -799,7 +837,6 @@ mod platform {
 
     pub fn collect_system_info() -> SystemInfo {
         let mut sys = SystemInfo::default();
-
         unsafe {
             let size = GetSystemFirmwareTable(RSMB, 0, None);
             if size == 0 { return sys; }
@@ -807,7 +844,8 @@ mod platform {
             let got = GetSystemFirmwareTable(RSMB, 0, Some(&mut buffer[..]));
             if got == 0 || (got as usize) > buffer.len() { return sys; }
 
-            let mut cache_map: HashMap<u16, u32> = HashMap::new();
+            // build cache_map
+            let cache_map = build_cache_map(&buffer);
 
             let mut offset = 0usize;
             while offset + 4 <= buffer.len() {
@@ -817,9 +855,9 @@ mod platform {
                 if offset + len > buffer.len() { break; }
 
                 match typ {
-                    17 => {
-                        if let Some(m) = parse_type17(&buffer, offset) {
-                            sys.memory_devices.push(m);
+                    2 => {
+                        if sys.board.is_none() {
+                            sys.board = parse_type2(&buffer, offset);
                         }
                     }
                     4 => {
@@ -827,19 +865,16 @@ mod platform {
                             sys.cpu = parse_type4(&buffer, offset);
                         }
                     }
-                    2 => {
-                        if sys.board.is_none() {
-                            sys.board = parse_type2(&buffer, offset);
-                        }
-                    }
                     16 => {
                         if sys.memory_array_slots.is_none() {
-                            sys.memory_array_slots = parse_type16(&buffer, offset);
+                            if let Some(n) = parse_type16(&buffer, offset) {
+                                if n > 0 { sys.memory_array_slots = Some(n); }
+                            }
                         }
                     }
-                    7 => {
-                        if let Some((handle, size_kb)) = parse_type7(&buffer, offset) {
-                            cache_map.insert(handle, size_kb);
+                    17 => {
+                        if let Some(m) = parse_type17(&buffer, offset) {
+                            sys.memory_devices.push(m);
                         }
                     }
                     _ => {}
@@ -852,104 +887,29 @@ mod platform {
                 }
             }
 
-            // assign caches
-            if let Some(cpu) = sys.cpu.as_mut() {
-                if cpu.l1_handle != 0 {
-                    if let Some(&s) = cache_map.get(&cpu.l1_handle) {
-                        cpu.l1_cache_kb = s;
-                    }
-                }
-                if cpu.l2_handle != 0 {
-                    if let Some(&s) = cache_map.get(&cpu.l2_handle) {
-                        cpu.l2_cache_kb = s;
-                    }
-                }
-                if cpu.l3_handle != 0 {
-                    if let Some(&s) = cache_map.get(&cpu.l3_handle) {
-                        cpu.l3_cache_kb = s;
-                    }
-                }
+            // apply caches
+            apply_cache_handles(&mut sys, &cache_map);
 
-                // fallback for thread/core: try available_parallelism
-                if cpu.thread_count == 0 {
-                    if let Ok(n) = std::thread::available_parallelism() {
-                        cpu.thread_count = n.get() as u16;
-                    }
-                }
-                // leave core_count as-is if unknown; Windows fallback requires additional APIs.
+            // fallback CPU counts (use available_parallelism if needed)
+            if let Some(cpu) = sys.cpu.as_mut() {
+                cpu_counts_fallback(cpu);
             }
 
             // assign channels
             assign_memory_channels(&mut sys);
         }
-
         sys
-    }
-
-    fn assign_memory_channels(sys: &mut SystemInfo) {
-        // same algorithm as linux
-        let mut occ_counter: HashMap<u8, usize> = HashMap::new();
-        let mut unnamed_counter: HashMap<String, usize> = HashMap::new();
-
-        for m in &sys.memory_devices {
-            if let Some(idx) = m.slot_index {
-                *occ_counter.entry(idx).or_insert(0) += 1;
-            } else {
-                let key = m.locator.clone();
-                *unnamed_counter.entry(key).or_insert(0) += 1;
-            }
-        }
-
-        let mut max_channels = 0usize;
-        for &v in occ_counter.values() { if v > max_channels { max_channels = v; } }
-        for &v in unnamed_counter.values() { if v > max_channels { max_channels = v; } }
-        if max_channels == 0 { max_channels = 1; }
-
-        let mut seen_counter: HashMap<u8, usize> = HashMap::new();
-        let mut seen_unnamed: HashMap<String, usize> = HashMap::new();
-
-        for m in sys.memory_devices.iter_mut() {
-            if let Some(idx) = m.slot_index {
-                let occ = seen_counter.entry(idx).or_insert(0);
-                let ch = *occ;
-                *occ += 1;
-                m.channel_index = Some(ch);
-            } else {
-                let key = m.locator.clone();
-                let occ = seen_unnamed.entry(key.clone()).or_insert(0);
-                let ch = *occ;
-                *occ += 1;
-                m.channel_index = Some(ch);
-            }
-            if let Some(ch_idx) = m.channel_index {
-                let ch_name = if max_channels <= 26 {
-                    let letter = (b'A' + (ch_idx as u8)).min(b'Z') as char;
-                    format!("Channel {}", letter)
-                } else {
-                    format!("Channel {}", ch_idx)
-                };
-                m.channel_name = Some(ch_name);
-            }
-        }
-        for m in sys.memory_devices.iter_mut() {
-            if m.channel_name.is_none() {
-                m.channel_index = Some(0);
-                m.channel_name = Some("Channel A".to_string());
-            }
-        }
     }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 mod platform {
     use super::*;
-    pub fn collect_system_info() -> SystemInfo {
-        SystemInfo::default()
-    }
+    pub fn collect_system_info() -> SystemInfo { SystemInfo::default() }
 }
 
 /////////////////////
-// Public APIs (helpers)
+// Public API and helpers (non-printing)
 /////////////////////
 
 pub fn get_system_info() -> SystemInfo {
@@ -957,17 +917,20 @@ pub fn get_system_info() -> SystemInfo {
 }
 
 impl SystemInfo {
-    /// Map of ChannelName -> vector of references to MemoryInfo (preserves insertion order per channel).
+    /// Channel map: ChannelName -> slots in insertion order
     pub fn memory_channels(&self) -> BTreeMap<String, Vec<&MemoryInfo>> {
         let mut map: BTreeMap<String, Vec<&MemoryInfo>> = BTreeMap::new();
         for m in &self.memory_devices {
-            let name = m.channel_name.clone().unwrap_or_else(|| "Channel 0".to_string());
-            map.entry(name).or_default().push(m);
+            if let Some(name) = &m.channel_name {
+                map.entry(name.clone()).or_default().push(m);
+            } else {
+                map.entry("Channel 0".to_string()).or_default().push(m);
+            }
         }
         map
     }
 
-    /// Number of channels that have at least one populated DIMM
+    /// Number of channels with at least one populated DIMM
     pub fn populated_channels(&self) -> usize {
         self.memory_channels()
             .values()
@@ -975,31 +938,25 @@ impl SystemInfo {
             .count()
     }
 
-    /// Total channels observed (populated or not)
+    /// total channels observed
     pub fn total_channels(&self) -> usize {
         self.memory_channels().len()
     }
 
-    /// Number of populated DIMM slots
     pub fn populated_slots(&self) -> usize {
         self.memory_devices.iter().filter(|m| m.populated).count()
     }
 
-    /// Number of total slots recorded
-    pub fn total_slots(&self) -> usize {
-        self.memory_devices.len()
-    }
+    pub fn total_slots(&self) -> usize { self.memory_devices.len() }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn smoke() {
         let info = get_system_info();
-        println!("{:#?}", info);
+        // only print populated slots in the Display impl per user request
         println!("{}", info);
     }
 }
-
