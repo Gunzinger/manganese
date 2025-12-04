@@ -208,6 +208,8 @@ Manganese binaries are built for two CPU microarchitecture levels:
 - **x86-64-v4 (AVX-512)**: Optimized for Intel Skylake-X (2017+), AMD Zen 4 (2022+) and newer
   - Features: AVX-512F, AVX-512BW, AVX-512CD, AVX-512DQ, AVX-512VL
 
+See: https://en.wikipedia.org/wiki/AVX-512#CPUs_with_AVX-512
+
 Choose the AVX2 version for maximum compatibility, or the AVX-512 version for ~15-20% better performance on supported CPUs.
 
 ## Troubleshooting
