@@ -1,0 +1,43 @@
+name: Bundle TinyCore ISO with all bins
+
+on:
+  workflow_run:
+    workflows: [ "Release" ]
+    types: [ completed ]
+
+jobs:
+  create-iso:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          # no `name:` to download all artifacts, or use pattern if needed
+          path: build_bins
+          # optionally pattern: "bin-*"
+          # merge-multiple: true    # default for no pattern
+
+      - name: List downloaded files
+        run: |
+          echo "Downloaded build artifacts:"
+          ls -R build_bins
+
+      - name: Install dependencies for ISO remastering
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y xorriso isolinux syslinux-utils cpio gzip
+
+      - name: Build custom TinyCore ISO
+        run: |
+          chmod +x remaster-tc.sh
+          ./remaster-tc.sh \
+            --iso-url "https://tinycorelinux.net/15.x/x86_64/release/TinyCorePure64-current.iso" \
+            --bins-dir build_bins \
+            --out-iso "tinycore-manganese.iso"
+
+      - name: Upload custom ISO
+        uses: actions/upload-artifact@v5
+        with:
+          name: tinycore-manganese
+          path: tinycore-manganese.iso

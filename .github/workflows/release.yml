@@ -148,6 +148,7 @@ jobs:
               BIN_NAME="manganese-v${VERSION}-${CPU}"
             fi
             cp target/${TARGET}/release/manganese current_release/${BIN_NAME}
+            chmod +x current_release/${BIN_NAME}
             strip current_release/${BIN_NAME}
             upx --best --ultra-brute current_release/${BIN_NAME}
             shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256

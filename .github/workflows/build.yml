@@ -1,8 +1,6 @@
 name: Build
 
 on:
-  push:
-    branches: [ master, main ]
   pull_request:
     branches: [ master, main ]
 
@@ -24,13 +22,13 @@ jobs:
           - cpu_target: x86-64-v4
             os_target: x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
-          - cpu_target: zen5
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
-          - cpu_target: zen5
-            os_target: x86_64-pc-windows-gnu
-            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
-    name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
+          #- cpu_target: zen5
+          #  os_target: x86_64-unknown-linux-musl
+          #  rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
+          #- cpu_target: zen5
+          #  os_target: x86_64-pc-windows-gnu
+          #  rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
+    name: Build ${{ matrix.cpu_target }} - ${{ matrix.os_target }}
     env:
       RUSTFLAGS: "${{ matrix.rustflags }}"
     steps:
@@ -65,10 +63,13 @@ jobs:
           if [[ "${TARGET}" == *"linux"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
               cp target/${TARGET}/release/manganese artifacts/manganese-avx256
+              chmod +x artifacts/manganese-avx256
             elif [[ "${CPU}" == "x86-64-v4" ]]; then
               cp target/${TARGET}/release/manganese artifacts/manganese-avx512
+              chmod +x artifacts/manganese-avx512
             else
               cp target/${TARGET}/release/manganese artifacts/manganese-${CPU}
+              chmod +x artifacts/manganese-${CPU}
             fi
           else
             if [[ "${CPU}" == "x86-64-v3" ]]; then
