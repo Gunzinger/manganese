@@ -90,21 +90,29 @@ echo "Building new ISO (${OUT_ISO})..."
 # Ensure xorriso etc installed in calling environment
 
 ISOHPFX=$(find /usr -name isohdpfx.bin -print -quit || true)
-ISOLINUX_BIN=$(find /usr -name isolinux.bin -print -quit || true)
+
+# Determine bootloader path
+if [[ -f iso_tree/boot/isolinux/isolinux.bin ]]; then
+  BOOT_BIN="boot/isolinux/isolinux.bin"
+  BOOT_CAT="boot/isolinux/boot.cat"
+elif [[ -f iso_tree/isolinux/isolinux.bin ]]; then
+  BOOT_BIN="isolinux/isolinux.bin"
+  BOOT_CAT="isolinux/boot.cat"
+else
+  echo "Error: isolinux.bin not found in expected paths" >&2
+  exit 1
+fi
 
 XORRISO=(xorriso -as mkisofs)
 if [[ -n "$ISOHPFX" ]]; then
   XORRISO+=( -isohybrid-mbr "$ISOHPFX" )
 fi
-if [[ -n "$ISOLINUX_BIN" ]]; then
-  XORRISO+=( -b isolinux/isolinux.bin \
-              -c isolinux/boot.cat \
-              -no-emul-boot \
-              -boot-load-size 4 \
-              -boot-info-table )
-fi
-
-XORRISO+=( -o "$OUT_ISO" iso_tree )
+XORRISO+=( -b "$BOOT_BIN" \
+            -c "$BOOT_CAT" \
+            -no-emul-boot \
+            -boot-load-size 4 \
+            -boot-info-table \
+            -o "$OUT_ISO" iso_tree )
 
 echo "Running: ${XORRISO[*]}"
 "${XORRISO[@]}"
