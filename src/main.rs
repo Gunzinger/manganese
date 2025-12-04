@@ -23,6 +23,10 @@ fn main() {
         spawn_terminal();
     }
 
+    let sys = sysinfo();
+    let smbios_info = hardware::collect_system_info();
+    let mut smbios_info_shown = false;
+
     let args: Vec<String> = env::args().collect();
 
     let input = if args.len() > 1 {
@@ -32,6 +36,13 @@ fn main() {
         // No arguments: prompt user
         eprintln!("usage: manganese [0%-99%]");
         eprintln!("where the input % is the amount of total installed ram that should be tested");
+        println!("Hardware information:\n{}", smbios_info);
+        smbios_info_shown = true;
+        println!("Total RAM: {}MiB, available: {}MiB ({:.2}%)",
+                 sys.totalram / (1024 * 1024),
+                 sys.freeram / (1024 * 1024),
+                 (sys.freeram as f64 / sys.totalram as f64) * 100.
+        );
         print!("Please enter arguments: ");
         io::stdout().flush().unwrap(); // flush so the prompt shows
         let mut input = String::new();
@@ -54,7 +65,21 @@ fn main() {
         std::process::exit(-1);
     }
 
-    let sys = sysinfo();
+    if ! smbios_info_shown {
+        println!("Hardware information:\n{}", smbios_info);
+    }
+    println!("Available Threads : {}", cpu_count);
+    if ram_speed > 0 {
+        if actual_ram_speed > 0 && actual_ram_speed != ram_speed {
+            println!("Memory Bandwidth  : {}MB/s (maximum, theoretical)",
+                      8 * actual_ram_speed * smbios_info.populated_channels() as u64);
+        } else {
+            // runs at spec or actual speed field missing
+            println!("Memory Bandwidth ?: {}MB/s (maximum, theoretical)",
+                      8 * ram_speed * smbios_info.populated_channels() as u64);
+        }
+    }
+
     let total_alloc = (sys.totalram as f64 * fraction) as usize;
     let alignment = cpu_count * getpagesize();
     let total_alloc = total_alloc - (total_alloc % alignment);
@@ -77,38 +102,25 @@ fn main() {
             }
 
             if mlock(ptr, alloc_size) == 0 {
-                let hw_info = hardware::collect_system_info();
-                eprintln!("Hardware information:\n{}", hw_info);
-                eprintln!("Available Threads : {}", cpu_count);
-                if ram_speed > 0 {
-                    if actual_ram_speed > 0 && actual_ram_speed != ram_speed {
-                        eprintln!("Memory Bandwidth  : {}MB/s (maximum, theoretical)",
-                                  8 * actual_ram_speed * hw_info.populated_channels() as u64);
-                    } else {
-                        // runs at spec or actual speed field missing
-                        eprintln!("Memory Bandwidth ?: {}MB/s (maximum, theoretical)",
-                                  8 * ram_speed * hw_info.populated_channels() as u64);
-                    }
-                }
-                eprintln!(
-                    "Locked Memory     : {}MB of {}MB ({:.0}%)",
+                println!(
+                    "Locked Memory     : {}MiB of {}MiB ({:.0}%)",
                     alloc_size / (1024 * 1024),
                     sys.totalram / (1024 * 1024),
                     100.0 * alloc_size as f64 / sys.totalram as f64
                 );
-                eprintln!("Chunk Alignment   : {}K", alignment / 1024);
+                println!("Chunk Alignment   : {}K", alignment / 1024);
                 match isa {
                     InstructionSet::AVX512 => eprintln!("Instruction Set   : AVX-512"),
                     InstructionSet::AVX2 => {
                         if hardware_is_needlessly_disabled() {
-                            eprintln!("Instruction Set   : AVX2 (lol)");
+                            println!("Instruction Set   : AVX2 (lol)");
                         } else {
-                            eprintln!("Instruction Set   : AVX2");
+                            println!("Instruction Set   : AVX2");
                         }
                     }
                     _ => {}
                 }
-                eprintln!();
+                println!();
                 
                 mem = Some(ptr);
                 size = alloc_size;
