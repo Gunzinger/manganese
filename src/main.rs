@@ -60,16 +60,17 @@ fn main() {
             }
 
             if mlock(ptr, alloc_size) == 0 {
-                eprintln!("Threads           : {}", cpu_count);
+                let hw_info = hardware::collect_system_info();
+                eprintln!("Hardware information:\n{}", hw_info);
+                eprintln!("Available Threads : {}", cpu_count);
                 if ram_speed > 0 {
                     if actual_ram_speed > 0 && actual_ram_speed != ram_speed {
-                        eprintln!("Memory Speed      : {}MT/s ({} MB/s per channel) [Spec: {}MT/s / {}MB/s per channel)]",
-                                  actual_ram_speed, 8 * actual_ram_speed,
-                                  ram_speed, 8 * ram_speed);
+                        eprintln!("Memory Bandwidth  : {}MB/s (maximum, theoretical)",
+                                  8 * actual_ram_speed * hw_info.populated_channels() as u64);
                     } else {
                         // runs at spec or actual speed field missing
-                        eprintln!("Memory Speed      : {}MT/s ({} MB/s per channel)",
-                                  ram_speed, 8 * ram_speed);
+                        eprintln!("Memory Bandwidth ?: {}MB/s (maximum, theoretical)",
+                                  8 * ram_speed * hw_info.populated_channels() as u64);
                     }
                 }
                 eprintln!(
