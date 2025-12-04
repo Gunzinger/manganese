@@ -217,9 +217,16 @@ jobs:
             --iso-url "http://tinycorelinux.net/16.x/x86_64/release/TinyCorePure64-current.iso" \
             --bins-dir $(realpath build_bins) \
             --out-iso "tinycore-manganese-${{ needs.create_release.outputs.version }}.iso"
+          shasum -a 256 tinycore-manganese-${{ needs.create_release.outputs.version }}.iso > tinycore-manganese-${{ needs.create_release.outputs.version }}.iso.sha256
 
       - name: Upload custom ISO
         uses: actions/upload-artifact@v5
         with:
           name: tinycore-manganese
           path: tinycore-manganese-${{ needs.create_release.outputs.version }}.iso
+
+      - name: Upload binaries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: tinycore-manganese-${{ needs.create_release.outputs.version }}.iso*

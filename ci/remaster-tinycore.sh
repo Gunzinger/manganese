@@ -79,6 +79,10 @@ find "$BINS_DIR" -type f -perm /a+x | while read -r bin; do
   chmod +x initrd_unpacked/usr/bin/"$(basename "$bin")"
 done
 
+# AUTOSTART ENTRY POINT
+mkdir -p initrd_unpacked/home/tc
+echo -e "\necho -e 'Manganese-rs-bootable is also distributed with ABSOLUTELY NO WARRANTY.\nhttps://github.com/Gunzinger/manganese\nsleep 1\nsudo manganese 98%" >> initrd_unpacked/home/tc/.profile
+
 echo "Repacking initramfs under fakeroot..."
 fakeroot sh -c " \
   cd \"$WORKDIR/initrd_unpacked\" && \
@@ -98,9 +102,13 @@ ISOHPFX=$(find /usr -name isohdpfx.bin -print -quit || true)
 if [[ -f iso_tree/boot/isolinux/isolinux.bin ]]; then
   BOOT_BIN="boot/isolinux/isolinux.bin"
   BOOT_CAT="boot/isolinux/boot.cat"
+  # disable boot prompt
+  sed -i -e 's/prompt 1/prompt 0/g' iso_tree/boot/isolinux/isolinux.cfg
 elif [[ -f iso_tree/isolinux/isolinux.bin ]]; then
   BOOT_BIN="isolinux/isolinux.bin"
   BOOT_CAT="isolinux/boot.cat"
+  # disable boot prompt
+  sed -i -e 's/prompt 1/prompt 0/g' iso_tree/isolinux/isolinux.cfg
 else
   echo "Error: isolinux.bin not found in expected paths" >&2
   exit 1
