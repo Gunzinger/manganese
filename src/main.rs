@@ -1,3 +1,6 @@
+use std::{env, io};
+use std::io::{IsTerminal, Write};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -15,14 +18,28 @@ use tests::tests_init;
 static ERRORS: AtomicU64 = AtomicU64::new(0);
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("usage: manganese [0%-99%]");
-        eprintln!("where the input % is the amount of total installed ram that should be tested");
-        std::process::exit(1);
+    if ! io::stdout().is_terminal() {
+        // if we dont detect that we are in a terminal, spawn a new one :)
+        spawn_terminal();
     }
 
-    let fraction = args[1]
+    let args: Vec<String> = env::args().collect();
+
+    let input = if args.len() > 1 {
+        // Arguments provided
+        args[1..].join(" ")
+    } else {
+        // No arguments: prompt user
+        eprintln!("usage: manganese [0%-99%]");
+        eprintln!("where the input % is the amount of total installed ram that should be tested");
+        print!("Please enter arguments: ");
+        io::stdout().flush().unwrap(); // flush so the prompt shows
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        input.trim().to_string()
+    };
+
+    let fraction = input
         .trim_end_matches('%')
         .parse::<f64>()
         .unwrap_or(0.0) / 100.0;
@@ -138,3 +155,46 @@ fn main() {
     }
 }
 
+fn spawn_terminal() {
+    let exe_path = env::current_exe().unwrap();
+    let exe_str = exe_path.to_str().unwrap();
+
+    #[cfg(target_os = "windows")]
+    {
+        // windows: spawn powershell
+        Command::new("powershell")
+            .args(&["-NoExit", "-Command", &format!("& '{}'", exe_str)])
+            .spawn()
+            .expect("Failed to spawn terminal");
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use AppleScript to open Terminal.app
+        Command::new("osascript")
+            .args(&[
+                "-e",
+                &format!("tell application \"Terminal\" to do script \"{}\"", exe_str),
+            ])
+            .spawn()
+            .expect("Failed to spawn terminal");
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: try common terminals (gnome-terminal, konsole, xterm)
+        let terminals = ["gnome-terminal", "konsole", "xterm"];
+        let mut spawned = false;
+
+        for term in &terminals {
+            if Command::new(term).args(&["-e", exe_str]).spawn().is_ok() {
+                spawned = true;
+                break;
+            }
+        }
+
+        if !spawned {
+            eprintln!("Could not spawn a terminal. Please run this CLI from a terminal manually.");
+        }
+    }
+}
