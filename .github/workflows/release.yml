@@ -222,4 +222,4 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: tinycore-manganese
-          path: tinycore-manganese-${{ needs.create_release.outputs.version }}-.iso
+          path: tinycore-manganese-${{ needs.create_release.outputs.version }}.iso
