@@ -21,6 +21,9 @@ if [[ -z "$ISO_URL" || -z "$BINS_DIR" ]]; then
   exit 1
 fi
 
+# capture the invocation directory (repo root / workspace root in CI)
+DESTDIR="$(pwd)"
+
 WORKDIR=$(mktemp -d)
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
@@ -118,5 +121,8 @@ echo "Running: ${XORRISO[*]}"
 "${XORRISO[@]}"
 
 echo "Custom ISO created at: $WORKDIR/$OUT_ISO"
-# Copy to cwd (in case WORKDIR is /tmp)
-cp "$WORKDIR/$OUT_ISO" "$PWD/../" 2>/dev/null || true
+
+echo "Copying final ISO to dest dir: $DESTDIR"
+cp "$WORKDIR/$OUT_ISO" "$DESTDIR/"
+
+echo "Done. Final ISO is at: $DESTDIR/$OUT_ISO"
