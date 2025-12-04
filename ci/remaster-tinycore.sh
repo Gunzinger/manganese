@@ -73,15 +73,15 @@ fakeroot sh -c " \
 
 echo "Copying user binaries from '$BINS_DIR' into initrd..."
 mkdir -p initrd_unpacked/usr/bin
-find "$BINS_DIR" -type f -perm /a+x | while read -r bin; do
+find "$BINS_DIR" -type f -name "manganese-*" | while read -r bin; do
+  echo "Found $bin ..."
   cp "$bin" initrd_unpacked/usr/bin/
-  # optional: preserve original filename & make executable
   chmod +x initrd_unpacked/usr/bin/"$(basename "$bin")"
 done
 
 # AUTOSTART ENTRY POINT
 mkdir -p initrd_unpacked/home/tc
-echo -e "\necho -e 'Manganese-rs-bootable is also distributed with ABSOLUTELY NO WARRANTY.\nhttps://github.com/Gunzinger/manganese\nsleep 1\nsudo manganese 98%" >> initrd_unpacked/home/tc/.profile
+echo -e "\necho -e 'Manganese is distributed with ABSOLUTELY NO WARRANTY.\nhttps://github.com/Gunzinger/manganese\n'\nsleep 1\nsudo manganese 98%" >> initrd_unpacked/home/tc/.profile
 
 echo "Repacking initramfs under fakeroot..."
 fakeroot sh -c " \
