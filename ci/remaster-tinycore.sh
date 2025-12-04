@@ -72,16 +72,20 @@ fakeroot sh -c " \
 "
 
 echo "Copying user binaries from '$BINS_DIR' into initrd..."
-mkdir -p initrd_unpacked/usr/bin
-find "$BINS_DIR" -type f -name "manganese-*" | while read -r bin; do
+BASE_BIN=""
+while IFS= read -r bin; do
   echo "Found $bin ..."
   cp "$bin" initrd_unpacked/usr/bin/
-  chmod +x initrd_unpacked/usr/bin/"$(basename "$bin")"
-done
+  chmod +x "initrd_unpacked/usr/bin/$(basename "$bin")"
+
+  if [[ "$bin" == *"-avx256" ]]; then
+    BASE_BIN="$(basename "$bin")"
+  fi
+done < <(find "$BINS_DIR" -type f -name "manganese-*")
 
 # AUTOSTART ENTRY POINT
 mkdir -p initrd_unpacked/home/tc
-echo -e "\necho -e 'Manganese is distributed with ABSOLUTELY NO WARRANTY.\nhttps://github.com/Gunzinger/manganese\n'\nsleep 1\nsudo manganese 98%" >> initrd_unpacked/home/tc/.profile
+echo -e "\necho -e 'Manganese is distributed with ABSOLUTELY NO WARRANTY.\nhttps://github.com/Gunzinger/manganese\nrun with e.g. sudo $BASE_BIN 98%'\n" >> initrd_unpacked/home/tc/.profile
 
 echo "Repacking initramfs under fakeroot..."
 fakeroot sh -c " \
