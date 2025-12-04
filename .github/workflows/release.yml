@@ -165,6 +165,16 @@ jobs:
             upx --best --ultra-brute current_release/${BIN_NAME}
             shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
           fi
+          
+          # persist BIN_NAME for the upload step
+          echo "BIN_NAME=${BIN_NAME}" >> $GITHUB_ENV
+
+      - name: Upload linux binary as artifact
+        if: matrix.os_target == 'x86_64-unknown-linux-musl'
+        uses: actions/upload-artifact@v5
+        with:
+          name: linux-bin-${{ matrix.cpu_target }}
+          path: current_release/${{ env.BIN_NAME }}
 
       - name: Upload binaries to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -174,7 +184,9 @@ jobs:
 
   create-iso:
     name: Build TinyCore ISO with Linux binaries
-    needs: build_binaries
+    needs:
+      - create_release
+      - build_binaries
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -204,10 +216,10 @@ jobs:
           ./ci/remaster-tc.sh \
             --iso-url "https://tinycorelinux.net/15.x/x86_64/release/TinyCorePure64-current.iso" \
             --bins-dir $(realpath build_bins) \
-            --out-iso "tinycore-manganese.iso"
+            --out-iso "tinycore-manganese-${{ needs.create_release.outputs.version }}.iso"
 
       - name: Upload custom ISO
         uses: actions/upload-artifact@v5
         with:
           name: tinycore-manganese
-          path: tinycore-manganese.iso
+          path: tinycore-manganese-${{ needs.create_release.outputs.version }}-.iso
