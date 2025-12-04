@@ -31,6 +31,8 @@ sudo mount -o loop base.iso mnt
 rsync -a mnt/ iso_tree/
 sudo umount mnt
 
+# shellcheck disable=SC2046
+sudo chown -R $(id -u):$(id -g) iso_tree
 BOOT_DIR=iso_tree/boot
 CORE_GZ=""
 for c in core.gz corepure64.gz rootfs64.gz; do
