@@ -60,6 +60,12 @@ fn main() {
             }
 
             if mlock(ptr, alloc_size) == 0 {
+
+                let info = hardware::get_system_info();
+                println!("---");
+                println!("{:#?}", info);
+                println!("---");
+                println!("{}", info);
                 eprintln!("Threads           : {}", cpu_count);
                 if ram_speed > 0 {
                     if actual_ram_speed > 0 && actual_ram_speed != ram_speed {

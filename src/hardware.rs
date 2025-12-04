@@ -264,3 +264,423 @@ mod cpuid {
     }
 }
 
+
+// ---
+
+// smb_info.rs
+// Cross-platform (Linux + Windows) SMBIOS parser to extract:
+// - CPU info (manufacturer/version/family/socket)
+// - Baseboard (manufacturer/product/version/serial)
+// - Memory devices (speed, configured speed, manufacturer, part, serial, size, locator)
+// - Memory array / populated slots count
+//
+// Usage:
+// ```ignore
+// let info = smb_info::get_system_info();
+// println!("{:#?}", info);
+// ```
+
+use std::fmt;
+
+#[derive(Debug, Default)]
+pub struct SystemInfo {
+    pub cpu: Option<CpuInfo>,
+    pub board: Option<BoardInfo>,
+    pub memory_devices: Vec<MemoryInfo>,
+    /// declared number of devices in Memory Array (SMBIOS Type 16; may be 0)
+    pub memory_array_slots: Option<u8>,
+}
+
+#[derive(Debug, Default)]
+pub struct CpuInfo {
+    pub manufacturer: String,
+    pub version: String,
+    pub family: u8,
+    pub socket: String,
+}
+
+#[derive(Debug, Default)]
+pub struct BoardInfo {
+    pub manufacturer: String,
+    pub product: String,
+    pub version: String,
+    pub serial: String,
+}
+
+#[derive(Debug, Default)]
+pub struct MemoryInfo {
+    /// Speed field from Type 17 (in MHz)
+    pub speed: u16,
+    /// Configured Speed field from Type 17 (in MHz)
+    pub configured_speed: u16,
+    pub manufacturer: String,
+    pub part_number: String,
+    pub serial: String,
+    /// Size in MB (best-effort)
+    pub size_mb: u32,
+    pub locator: String,
+}
+
+impl fmt::Display for SystemInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(cpu) = &self.cpu {
+            writeln!(f, "CPU: {} ({}) family {}", cpu.manufacturer, cpu.version, cpu.family)?;
+            writeln!(f, " Socket: {}", cpu.socket)?;
+        } else {
+            writeln!(f, "CPU: <unknown>")?;
+        }
+
+        if let Some(board) = &self.board {
+            writeln!(f, "Board: {} / {} (v{}) SN: {}", board.manufacturer, board.product, board.version, board.serial)?;
+        } else {
+            writeln!(f, "Board: <unknown>")?;
+        }
+
+        writeln!(f, "Memory Array slots (Type 16): {:?}", self.memory_array_slots)?;
+
+        let populated = self.memory_devices.iter().filter(|m| m.size_mb > 0 || !m.manufacturer.is_empty()).count();
+        writeln!(f, "Memory devices populated: {}", populated)?;
+        for (i, m) in self.memory_devices.iter().enumerate() {
+            writeln!(f, " Slot {}: {}MB (speed {}MHz configured {})", i + 1, m.size_mb, m.speed, m.configured_speed)?;
+            writeln!(f, "  Manufacturer: {}", m.manufacturer)?;
+            writeln!(f, "  Part: {} Serial: {} Locator: {}", m.part_number, m.serial, m.locator)?;
+        }
+        Ok(())
+    }
+}
+
+/////////////////////
+// Common parsing helpers
+/////////////////////
+
+/// Return SMBIOS string referenced by `index` (1-based) for structure starting at `struct_start` in `buf`.
+/// Safe: returns None if index == 0 or out-of-bounds.
+fn get_smbios_string(buf: &[u8], struct_start: usize, index: u8) -> Option<String> {
+    if index == 0 {
+        return None;
+    }
+    // structure length is at offset + 1
+    let struct_len = *buf.get(struct_start + 1)? as usize;
+    let mut p = struct_start + struct_len;
+    if p >= buf.len() {
+        return None;
+    }
+
+    // iterate strings
+    let mut cur = 1u8;
+    while p < buf.len() {
+        // find end of string
+        let mut end = p;
+        while end < buf.len() && buf[end] != 0 {
+            end += 1;
+        }
+        // if this string is the requested one, return it
+        if cur == index {
+            let slice = &buf[p..end];
+            // interpret as UTF-8 lossily
+            return Some(String::from_utf8_lossy(slice).into_owned());
+        }
+        // advance to next string (skip the terminating NUL)
+        cur = cur.saturating_add(1);
+        p = end + 1;
+
+        // check for double NUL -> end of strings
+        if p < buf.len() && buf[p] == 0 {
+            break;
+        }
+    }
+    None
+}
+
+/// Advance `offset` to the next SMBIOS structure (skip formatted area and trailing string area).
+/// Returns next offset or None if EOF or malformed.
+fn smb_next_structure(buf: &[u8], offset: usize) -> Option<usize> {
+    let len = *buf.get(offset + 1)? as usize;
+    let mut next = offset + len;
+    // walk until double nul
+    while next + 1 < buf.len() {
+        if buf[next] == 0 && buf[next + 1] == 0 {
+            return Some(next + 2);
+        }
+        next += 1;
+    }
+    None
+}
+
+/// Safely read little-endian u16 at given index
+fn le_u16_at(buf: &[u8], idx: usize) -> u16 {
+    let a = *buf.get(idx).unwrap_or(&0);
+    let b = *buf.get(idx + 1).unwrap_or(&0);
+    u16::from_le_bytes([a, b])
+}
+
+/////////////////////
+// Structure parsers (assume `offset` points to start of structure in `buf`)
+/////////////////////
+
+fn parse_type17(buf: &[u8], offset: usize) -> Option<MemoryInfo> {
+    // formatted area length must be present
+    let struct_len = *buf.get(offset + 1)? as usize;
+    if offset + struct_len > buf.len() {
+        return None;
+    }
+
+    // According to SMBIOS the following offsets are common:
+    // 0x0C-0x0D = Size (word), 0x10 = Locator (string index)
+    // 0x15-0x16 = Speed (u16), 0x17 = Manufacturer (string index)
+    // 0x18 = SerialNumber (string index), 0x1A = PartNumber (string index)
+    // Configured Clock Speed often at 0x20-0x21 for later versions
+    let size_field = le_u16_at(buf, offset + 0x0C);
+    let size_mb = if size_field == 0 || size_field == 0xFFFF { 0 } else { size_field as u32 };
+
+    let locator_idx = *buf.get(offset + 0x10).unwrap_or(&0);
+    let manufacturer_idx = *buf.get(offset + 0x17).unwrap_or(&0);
+    let serial_idx = *buf.get(offset + 0x18).unwrap_or(&0);
+    let part_idx = *buf.get(offset + 0x1A).unwrap_or(&0);
+
+    let speed = le_u16_at(buf, offset + 0x15);
+    let configured_speed = le_u16_at(buf, offset + 0x20);
+
+    Some(MemoryInfo {
+        speed,
+        configured_speed,
+        manufacturer: get_smbios_string(buf, offset, manufacturer_idx).unwrap_or_default(),
+        part_number: get_smbios_string(buf, offset, part_idx).unwrap_or_default(),
+        serial: get_smbios_string(buf, offset, serial_idx).unwrap_or_default(),
+        size_mb,
+        locator: get_smbios_string(buf, offset, locator_idx).unwrap_or_default(),
+    })
+}
+
+fn parse_type4(buf: &[u8], offset: usize) -> Option<CpuInfo> {
+    // Type 4 (Processor Info)
+    // Offsets:
+    // 0x04 = socket (string), 0x06 = family (byte), 0x07 = manufacturer (string ref),
+    // 0x10 = version (string ref)
+    let socket_idx = *buf.get(offset + 0x04).unwrap_or(&0);
+    let family = *buf.get(offset + 0x06).unwrap_or(&0);
+    let manufacturer_idx = *buf.get(offset + 0x07).unwrap_or(&0);
+    let version_idx = *buf.get(offset + 0x10).unwrap_or(&0);
+
+    Some(CpuInfo {
+        manufacturer: get_smbios_string(buf, offset, manufacturer_idx).unwrap_or_default(),
+        version: get_smbios_string(buf, offset, version_idx).unwrap_or_default(),
+        family,
+        socket: get_smbios_string(buf, offset, socket_idx).unwrap_or_default(),
+    })
+}
+
+fn parse_type2(buf: &[u8], offset: usize) -> Option<BoardInfo> {
+    // Type 2 (Baseboard)
+    // 0x04 = Manufacturer, 0x05 = Product, 0x06 = Version, 0x07 = Serial
+    let man = *buf.get(offset + 0x04).unwrap_or(&0);
+    let prod = *buf.get(offset + 0x05).unwrap_or(&0);
+    let ver = *buf.get(offset + 0x06).unwrap_or(&0);
+    let ser = *buf.get(offset + 0x07).unwrap_or(&0);
+
+    Some(BoardInfo {
+        manufacturer: get_smbios_string(buf, offset, man).unwrap_or_default(),
+        product: get_smbios_string(buf, offset, prod).unwrap_or_default(),
+        version: get_smbios_string(buf, offset, ver).unwrap_or_default(),
+        serial: get_smbios_string(buf, offset, ser).unwrap_or_default(),
+    })
+}
+
+fn parse_type16(buf: &[u8], offset: usize) -> Option<u8> {
+    // Type 16 (Physical Memory Array)
+    // 0x0E = NumberOfDevices (1 byte)
+    Some(*buf.get(offset + 0x0E).unwrap_or(&0))
+}
+
+/////////////////////
+// Platform-specific code
+/////////////////////
+
+#[cfg(target_os = "linux")]
+mod platform {
+    use super::*;
+    use glob::glob;
+    use std::fs;
+    use std::io::Read;
+
+    /// Build a single buffer by concatenating the raw contents of all /sys/firmware/dmi/entries/*/raw files.
+    /// This mirrors SMBIOS table parsing by reading all entries (each file is a single structure + strings).
+    fn read_sys_dmi_entries() -> Option<Vec<u8>> {
+        let mut buffer = Vec::new();
+        // iterate all entry raw files
+        let pattern = "/sys/firmware/dmi/entries/*/raw";
+        let entries = glob(pattern).ok()?;
+        for entry in entries.flatten() {
+            if let Ok(mut f) = fs::File::open(&entry) {
+                let mut tmp = Vec::new();
+                if f.read_to_end(&mut tmp).is_ok() {
+                    // Some kernels expose each structure as a file. Append and keep entries contiguous.
+                    buffer.extend_from_slice(&tmp);
+                }
+            }
+        }
+        if buffer.is_empty() {
+            None
+        } else {
+            Some(buffer)
+        }
+    }
+
+    pub fn collect_system_info() -> SystemInfo {
+        let mut sys = SystemInfo::default();
+        let buf = match read_sys_dmi_entries() {
+            Some(b) => b,
+            None => return sys,
+        };
+
+        let mut offset = 0usize;
+        while offset + 4 <= buf.len() {
+            let typ = buf[offset];
+            let len = buf[offset + 1] as usize;
+            if len == 0 {
+                break;
+            }
+            if offset + len > buf.len() {
+                break;
+            }
+
+            match typ {
+                17 => {
+                    if let Some(m) = parse_type17(&buf, offset) {
+                        sys.memory_devices.push(m);
+                    }
+                }
+                4 => {
+                    if sys.cpu.is_none() {
+                        sys.cpu = parse_type4(&buf, offset);
+                    }
+                }
+                2 => {
+                    if sys.board.is_none() {
+                        sys.board = parse_type2(&buf, offset);
+                    }
+                }
+                16 => {
+                    if sys.memory_array_slots.is_none() {
+                        sys.memory_array_slots = parse_type16(&buf, offset);
+                    }
+                }
+                _ => {}
+            }
+
+            // advance to next structure
+            if let Some(next) = smb_next_structure(&buf, offset) {
+                offset = next;
+            } else {
+                break;
+            }
+        }
+
+        sys
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::*;
+    use windows::Win32::System::SystemInformation::{GetSystemFirmwareTable, RSMB};
+    use std::mem;
+
+    pub fn collect_system_info() -> SystemInfo {
+        let mut sys = SystemInfo::default();
+
+        unsafe {
+            // Step 1: get required size
+            let size = GetSystemFirmwareTable(RSMB, 0, None);
+            if size == 0 {
+                // failed
+                return sys;
+            }
+            // allocate
+            let mut buffer = vec![0u8; size as usize];
+            let got = GetSystemFirmwareTable(RSMB, 0, Some(&mut buffer[..]));
+            if got == 0 || got as usize > buffer.len() {
+                return sys;
+            }
+
+            let mut offset = 0usize;
+            while offset + 4 <= buffer.len() {
+                let typ = buffer[offset];
+                let len = buffer[offset + 1] as usize;
+                if len == 0 {
+                    break;
+                }
+                if offset + len > buffer.len() {
+                    break;
+                }
+
+                match typ {
+                    17 => {
+                        if let Some(m) = parse_type17(&buffer, offset) {
+                            sys.memory_devices.push(m);
+                        }
+                    }
+                    4 => {
+                        if sys.cpu.is_none() {
+                            sys.cpu = parse_type4(&buffer, offset);
+                        }
+                    }
+                    2 => {
+                        if sys.board.is_none() {
+                            sys.board = parse_type2(&buffer, offset);
+                        }
+                    }
+                    16 => {
+                        if sys.memory_array_slots.is_none() {
+                            sys.memory_array_slots = parse_type16(&buffer, offset);
+                        }
+                    }
+                    _ => {}
+                }
+
+                if let Some(next) = smb_next_structure(&buffer, offset) {
+                    offset = next;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        sys
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+mod platform {
+    use super::*;
+    pub fn collect_system_info() -> SystemInfo {
+        // unsupported platform: return empty SystemInfo
+        SystemInfo::default()
+    }
+}
+
+/////////////////////
+// Public API
+/////////////////////
+
+/// Collects and returns system info (CPU, board, memory devices, memory array slot count).
+pub fn get_system_info() -> SystemInfo {
+    platform::collect_system_info()
+}
+
+/////////////////////
+// Optional tests / example
+/////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoke() {
+        let info = get_system_info();
+        // just ensure it doesn't crash
+        println!("{:#?}", info);
+    }
+}
+
