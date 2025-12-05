@@ -116,7 +116,7 @@ pub fn run_tests(ram_bytes: usize, hide_serials: bool, stop_signal: &AtomicBool)
                 );
                 info!("Chunk Alignment   : {}K", alignment / 1024);
                 match isa {
-                    InstructionSet::AVX512 => error!("Instruction Set   : AVX-512"),
+                    InstructionSet::AVX512 => info!("Instruction Set   : AVX-512"),
                     InstructionSet::AVX2 => {
                         if hardware_is_needlessly_disabled() {
                             info!("Instruction Set   : AVX2 (lol)");
@@ -179,7 +179,7 @@ pub fn run_tests(ram_bytes: usize, hide_serials: bool, stop_signal: &AtomicBool)
             .sum();
 
         let bandwidth = (total_passes as f64 * (size as f64 / (1024.0 * 1024.0))) / total_time;
-        error!("Tests completed in {:.2} sec [{:.0}MB/s]", total_time, bandwidth);
+        info!("Tests completed in {:.2} sec [{:.0}MB/s]", total_time, bandwidth);
     }
     info!("Test stopped after {:.2}s", start.elapsed().as_secs_f64());
 }
