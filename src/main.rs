@@ -1,12 +1,25 @@
-use std::env;
+#![cfg_attr(feature = "gui", windows_subsystem = "windows")]
+
 use clap::Parser;
 use std::io::{self, IsTerminal, Write};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool};
+#[cfg(not(feature = "gui"))]
+use std::env;
+#[cfg(not(feature = "gui"))]
+use std::process::Command;
 
 use sysinfo::{System, RefreshKind};
 
 use manganese_core::{parse_ram_spec, RamSpec, run_tests};
+
+use simplelog::{SimpleLogger, ConfigBuilder};
+use log::{error, info, LevelFilter as LogLevelFilter};
+
+fn init_cli_logger() {
+    let config = ConfigBuilder::new()
+        .build();
+    SimpleLogger::init(LogLevelFilter::Info, config).unwrap();
+}
 
 #[cfg(feature = "gui")]
 mod gui;
@@ -16,24 +29,27 @@ struct Args {
     ram: Option<String>,
     #[arg(long)]
     hide_serials: bool,
+    headless: bool,
 }
 
 fn main() {
     let args = Args::parse();
 
-    // Detect terminal
-    let is_terminal = io::stdout().is_terminal();
-
     // GUI fallback if enabled and no terminal is present
     #[cfg(feature = "gui")]
-    gui::launch_gui().expect("ERROR: gui crashed");
-    if !is_terminal {
+    if !args.headless {
+        gui::launch_gui().expect("ERROR: gui crashed");
         return;
     }
 
+    //println!("manganese v{}", env!("CARGO_PKG_VERSION"));
+
+    // Detect terminal
+    let is_terminal = io::stdout().is_terminal();
+
     // CLI-only fallback
     #[cfg(not(feature = "gui"))]
-    if !is_terminal {
+    if ! is_terminal {
         spawn_terminal();
     }
 
@@ -48,11 +64,13 @@ fn run_cli(args: Args) {
 
     sys.refresh_memory();
 
-    let ram_input = args.ram.unwrap_or_else(|| {
-        eprintln!("usage: manganese [0%-99%|4GiB|8%t|300MiB]");
-        eprintln!("where the input is an SI size, % of free RAM, or %t of total RAM.");
+    init_cli_logger();
 
-        println!(
+    let ram_input = args.ram.unwrap_or_else(|| {
+        error!("usage: manganese [0%-99%|4GiB|8%t|300MiB]");
+        error!("where the input is an SI size, % of free RAM, or %t of total RAM.");
+
+        info!(
             "Total RAM: {}MiB, available: {}MiB ({:.2}%)",
             sys.total_memory() / 1024 / 1024,
             sys.available_memory() / 1024 / 1024,
@@ -77,7 +95,7 @@ fn run_cli(args: Args) {
         Some(RamSpec::Percent(frac, true)) => (sys.total_memory() as f64 * frac) as usize,
         Some(RamSpec::Percent(frac, false)) => (sys.available_memory() as f64 * frac) as usize,
         None => {
-            eprintln!("Invalid RAM specification: \"{}\"", ram_input);
+            error!("Invalid RAM specification: \"{}\"", ram_input);
             std::process::exit(1);
         }
     };
@@ -87,6 +105,7 @@ fn run_cli(args: Args) {
     run_tests(ram_bytes, !args.hide_serials, &stop_signal);
 }
 
+#[cfg(not(feature = "gui"))]
 fn spawn_terminal() {
     let exe_path = env::current_exe().unwrap();
     let exe_str = exe_path.to_str().unwrap();
@@ -126,7 +145,7 @@ fn spawn_terminal() {
         }
 
         if !spawned {
-            eprintln!("Could not spawn a terminal. Please run this CLI from a terminal manually.");
+            error!("Could not spawn a terminal. Please run this CLI from a terminal manually.");
         }
     }
 }

@@ -1,16 +1,42 @@
 // src/gui.rs
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
     Mutex,
 };
 use std::thread;
 
 use eframe::{egui, run_native, NativeOptions};
-use egui::{CentralPanel, TextEdit, ScrollArea};
+use egui::{CentralPanel, ScrollArea, TextEdit};
 
-use sysinfo::{System, RefreshKind, MemoryRefreshKind};
-use manganese_core::{parse_ram_spec, RamSpec, run_tests};
+use manganese_core::{parse_ram_spec, run_tests, RamSpec};
+use sysinfo::{RefreshKind, System};
+
+use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
+
+struct GuiLogger {
+    buffer: Arc<Mutex<String>>,
+}
+
+impl Log for GuiLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= LevelFilter::Info
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            let mut buf = self.buffer.lock().unwrap();
+            buf.push_str(&format!("[{}] {}\n", record.level(), record.args()));
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+fn init_gui_logger(buffer: Arc<Mutex<String>>) -> Result<(), SetLoggerError> {
+    log::set_boxed_logger(Box::new(GuiLogger { buffer }))
+        .map(|()| log::set_max_level(LevelFilter::Info))
+}
 
 pub fn launch_gui() -> eframe::Result<()> {
     let native_options = NativeOptions::default();
@@ -27,20 +53,23 @@ struct GuiApp {
     running: bool,
     stop_flag: Arc<AtomicBool>,
     status: String,
-    log: Arc<Mutex<Vec<String>>>,
-    allocated_bytes: Option<usize>,
+    test_handle: Option<thread::JoinHandle<()>>,
+    log_buffer: Arc<Mutex<String>>,
 }
 
 impl Default for GuiApp {
     fn default() -> Self {
+        let buffer = Arc::new(Mutex::new(String::new()));
+        init_gui_logger(buffer.clone()).unwrap();
+
         Self {
             ram_input: "".to_owned(),
             hide_serials: false,
             running: false,
             stop_flag: Arc::new(AtomicBool::new(false)),
             status: "Idle".to_owned(),
-            log: Arc::new(Mutex::new(Vec::new())),
-            allocated_bytes: None,
+            test_handle: None,
+            log_buffer: buffer,
         }
     }
 }
@@ -62,7 +91,7 @@ impl eframe::App for GuiApp {
 
             if !self.running {
                 if ui.button("Start").clicked() {
-                    // Parse input & compute ram_bytes
+                    // compute ram_bytes
                     let mut sys = System::new_with_specifics(
                         RefreshKind::everything(),
                     );
@@ -82,54 +111,55 @@ impl eframe::App for GuiApp {
 
                     self.running = true;
                     self.stop_flag.store(false, Ordering::SeqCst);
-                    self.status = "Running...".to_owned();
-                    self.allocated_bytes = Some(ram_bytes);
+                    self.status = "Running...".to_string();
 
-                    let stop = self.stop_flag.clone();
-                    let hide_serials = self.hide_serials;
-                    let log_buf = self.log.clone();
-
-                    // Clear old log
+                    // Clear previous log
                     {
-                        let mut log = log_buf.lock().unwrap();
+                        let mut log = self.log_buffer.lock().unwrap();
                         log.clear();
                     }
+                    let stop_clone = self.stop_flag.clone();
+                    let hide = self.hide_serials;
 
-                    // Spawn background test thread
-                    thread::spawn(move || {
-                        // Here: you need to adapt run_tests to accept a log callback
-                        run_tests(ram_bytes, !hide_serials, &stop);
-
-                        // For example: after finishing
-                        let mut log = log_buf.lock().unwrap();
-                        log.push(format!("Test finished.\n"));
-                    });
+                    self.test_handle = Option::from(thread::spawn(move || {
+                        // run the tests (existing code, no change required)
+                        run_tests(ram_bytes, !hide, &stop_clone);
+                    }));
                 }
             } else {
                 if ui.button("Stop").clicked() {
                     self.stop_flag.store(true, Ordering::SeqCst);
-                    self.status = "Stopping...".to_owned();
+                    self.status = "Stopping...".to_string();
+                    // after stop, we expect run_tests to exit — the thread will drop guard & capture output
+                    self.test_handle.take().unwrap().join().unwrap();
+                    self.running = false; // allow start button again
+                    self.status = "Idle".to_owned();
                 }
             }
 
             ui.separator();
-
-            if let Some(bytes) = self.allocated_bytes {
-                ui.label(format!("Requested allocation: {} MiB", bytes / (1024 * 1024)));
-            }
-
             ui.label(format!("Status: {}", self.status));
 
             ui.separator();
-            ui.label("Log:");
-            ScrollArea::vertical().show(ui, |ui| {
-                let log = self.log.lock().unwrap();
-                for line in log.iter() {
-                    ui.label(line);
-                }
-            });
+            ui.label("Console output:");
+            ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    let log = self.log_buffer.lock().unwrap();
+                    ui.label(log.as_str());
+                });
+
+            // Reset running status if stop flag is cleared and thread finished
+            //if self.running && self.stop_flag.load(Ordering::SeqCst) == false {
+                // Optimistically check: if thread has finished, mark as stopped
+                // For better detection, you could join a handle (requires storing it)
+                // Here, we just allow restart if stop flag was cleared
+            //    self.running = false;
+            //    self.status = "Idle".to_owned();
+            //}
         });
 
+        // keep repainting so we see log updates
         ctx.request_repaint();
     }
 }

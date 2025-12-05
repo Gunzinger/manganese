@@ -2,7 +2,8 @@
 name = "manganese"
 version = "1.0.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.89.0"
+resolver = "3"
 
 [[bin]]
 name = "manganese"
@@ -12,10 +13,12 @@ path = "src/main.rs"
 manganese_core = { path = "./manganese_core" }
 clap = { version = "4.5.53", features = ["derive"] }
 sysinfo = "0.37.2"
+log = "0.4.29"
 
 # GUI dependencies behind feature flag
 eframe = { version = "0.33.2", optional = true }
 egui = { version = "0.33.2", optional = true }
+simplelog = "0.12.2"
 
 [profile.release]
 opt-level = 3

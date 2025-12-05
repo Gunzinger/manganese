@@ -1,6 +1,7 @@
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 use std::arch::x86_64::*;
 use std::sync::atomic::AtomicU64;
+use log::error;
 use crate::simd_xorshift::Avx512Xorshift128PlusKey;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
@@ -35,7 +36,7 @@ unsafe fn get(mem: *const u8, idx: usize, expected: __m512i) {
     
     if result != 0 {
         let error_total = result.count_ones() as u64;
-        eprintln!("{} errors detected at offset 0x{:016x} [error mask: 0x{:016x}]", error_total, idx, result);
+        error!("{} errors detected at offset 0x{:016x} [error mask: 0x{:016x}]", error_total, idx, result);
         (*ERRORS).fetch_add(error_total, std::sync::atomic::Ordering::Relaxed);
     }
 }

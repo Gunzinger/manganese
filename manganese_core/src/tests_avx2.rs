@@ -1,7 +1,7 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 use std::sync::atomic::AtomicU64;
-
+use log::error;
 #[cfg(target_arch = "x86_64")]
 use crate::simd_xorshift::AvxXorshift128PlusKey;
 #[cfg(target_arch = "x86_64")]
@@ -35,7 +35,7 @@ unsafe fn get(mem: *const u8, idx: usize, expected: __m256i) {
     let result = _mm256_testz_si256(cmp, cmp);
     
     if result != 0 {
-        eprintln!("errors detected at offset 0x{:016x}", idx);
+        error!("errors detected at offset 0x{:016x}", idx);
         (*ERRORS).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }

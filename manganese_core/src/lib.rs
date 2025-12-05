@@ -7,6 +7,7 @@ mod tests_avx512;
 
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::time::Instant;
+use log::info;
 
 pub static ERRORS: AtomicUsize = AtomicUsize::new(0);
 
@@ -54,15 +55,15 @@ pub fn parse_ram_spec(input: &str, free_ram: usize, total_ram: usize) -> Option<
 // Placeholder for memory allocation and test loop
 pub fn run_tests(ram_bytes: usize, show_serials: bool, stop_signal: &AtomicBool) {
     if show_serials {
-        println!("Hardware information: <SMBIOS INFO HERE>");
+        info!("Hardware information: <SMBIOS INFO HERE>");
     }
-    println!("Testing {} bytes of RAM...", ram_bytes);
+    info!("Testing {} bytes of RAM...", ram_bytes);
 
     let start = Instant::now();
     while !stop_signal.load(Ordering::Relaxed) {
         std::thread::sleep(std::time::Duration::from_millis(500));
         let elapsed = start.elapsed().as_secs_f64();
-        println!("Elapsed {:.2}s", elapsed);
+        info!("Elapsed {:.2}s", elapsed);
     }
-    println!("Test stopped after {:.2}s", start.elapsed().as_secs_f64());
+    info!("Test stopped after {:.2}s", start.elapsed().as_secs_f64());
 }
