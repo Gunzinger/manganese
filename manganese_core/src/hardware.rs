@@ -283,6 +283,7 @@ pub struct SystemInfo {
     pub memory_devices: Vec<MemoryInfo>, // includes recorded slots; populated flag indicates actual module
     /// Type 16 NumberOfDevices (if present and >0)
     pub memory_array_slots: Option<u8>,
+    pub hide_serials: bool,
 }
 
 #[derive(Debug, Default)]
@@ -343,9 +344,17 @@ impl fmt::Display for SystemInfo {
 
         if let Some(board) = &self.board {
             if board.version.to_ascii_lowercase() == "Default String".to_ascii_lowercase() {
-                writeln!(f, "Board: {} {}, Serial: {}", board.manufacturer, board.product, board.serial)?;
+                if self.hide_serials {
+                    writeln!(f, "Board: {} {}", board.manufacturer, board.product)?;
+                } else {
+                    writeln!(f, "Board: {} {}, Serial: {}", board.manufacturer, board.product, board.serial)?;
+                }
             } else {
-                writeln!(f, "Board: {} {}, Version: {}, Serial: {}", board.manufacturer, board.product, board.version, board.serial)?;
+                if self.hide_serials {
+                    writeln!(f, "Board: {} {}, Version: {}", board.manufacturer, board.product, board.version)?;
+                } else {
+                    writeln!(f, "Board: {} {}, Version: {}, Serial: {}", board.manufacturer, board.product, board.version, board.serial)?;
+                }
             }
         }
 
@@ -372,7 +381,11 @@ impl fmt::Display for SystemInfo {
                     writeln!(f, "  Slot {}: {} MB @ {}MT/s (spec at {}MT/s), Locator: {}",
                              i+1, m.size_mb, m.configured_speed, m.speed, m.locator)?;
                     if !m.manufacturer.is_empty() {
-                        writeln!(f, "   Manufacturer: {}, Part: {}, Serial: {}", m.manufacturer, m.part_number, m.serial)?;
+                        if self.hide_serials {
+                            writeln!(f, "   Manufacturer: {}, Part: {}", m.manufacturer, m.part_number)?;
+                        } else {
+                            writeln!(f, "   Manufacturer: {}, Part: {}, Serial: {}", m.manufacturer, m.part_number, m.serial)?;
+                        }
                     }
                 }
             }

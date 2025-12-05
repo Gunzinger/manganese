@@ -42,7 +42,7 @@ fn main() {
         return;
     }
 
-    //println!("manganese v{}", env!("CARGO_PKG_VERSION"));
+    //info!("manganese v{}", env!("CARGO_PKG_VERSION"));
 
     // Detect terminal
     let is_terminal = io::stdout().is_terminal();
@@ -102,7 +102,7 @@ fn run_cli(args: Args) {
 
     let stop_signal = AtomicBool::new(false);
 
-    run_tests(ram_bytes, !args.hide_serials, &stop_signal);
+    run_tests(ram_bytes, args.hide_serials, &stop_signal);
 }
 
 #[cfg(not(feature = "gui"))]

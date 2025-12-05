@@ -119,11 +119,11 @@ impl eframe::App for GuiApp {
                         log.clear();
                     }
                     let stop_clone = self.stop_flag.clone();
-                    let hide = self.hide_serials;
+                    let hide_serials = self.hide_serials;
 
                     self.test_handle = Option::from(thread::spawn(move || {
                         // run the tests (existing code, no change required)
-                        run_tests(ram_bytes, !hide, &stop_clone);
+                        run_tests(ram_bytes, hide_serials, &stop_clone);
                     }));
                 }
             } else {
