@@ -74,10 +74,20 @@ jobs:
             rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
           - cpu_target: x86-64-v4
             os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
           - cpu_target: x86-64-v4
             os_target: x86_64-pc-windows-gnu
-            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+avx512f,+avx512bw"
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
+          - cpu_target: x86-64-v4-gui
+            os_target: x86_64-unknown-linux-musl
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
+            cargo_build_flags: "--features gui"
+            # gui variant
+          - cpu_target: x86-64-v4-gui
+            os_target: x86_64-pc-windows-gnu
+            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
+            cargo_build_flags: "--features gui"
+            # gui variant
           - cpu_target: zen3
             os_target: x86_64-unknown-linux-musl
             rustflags: "-C target-cpu=znver3 -C target-feature=+avx2,+fma"
@@ -86,19 +96,20 @@ jobs:
             rustflags: "-C target-cpu=znver3 -C target-feature=+avx2,+fma"
           - cpu_target: zen4
             os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=znver4 -C target-feature=+avx2,+avx512f,+avx512bw"
+            rustflags: "-C target-cpu=znver4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
           - cpu_target: zen4
             os_target: x86_64-pc-windows-gnu
-            rustflags: "-C target-cpu=znver4 -C target-feature=+avx2,+avx512f,+avx512bw"
+            rustflags: "-C target-cpu=znver4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
           - cpu_target: zen5
             os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
+            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
           - cpu_target: zen5
             os_target: x86_64-pc-windows-gnu
-            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+avx512f,+avx512bw"
+            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
     name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
     env:
       RUSTFLAGS: "${{ matrix.rustflags }}"
+      CARGO_BUILD_FLAGS: "${{ matrix.cargo_build_flags }}"
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -129,7 +140,7 @@ jobs:
       - name: Build binary
         run: |
           TARGET="${{ matrix.os_target }}"
-          cargo build --release --target ${TARGET}
+          cargo build --release ${CARGO_BUILD_FLAGS} --target ${TARGET}
 
       - name: Prepare release binaries
         shell: bash
@@ -150,7 +161,7 @@ jobs:
             cp target/${TARGET}/release/manganese current_release/${BIN_NAME}
             chmod +x current_release/${BIN_NAME}
             strip current_release/${BIN_NAME}
-            upx --best --ultra-brute current_release/${BIN_NAME}
+            upx --best --brute current_release/${BIN_NAME}
             shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
           else
             if [[ "${CPU}" == "x86-64-v3" ]]; then
@@ -162,7 +173,7 @@ jobs:
             fi
             cp target/${TARGET}/release/manganese.exe current_release/${BIN_NAME}
             x86_64-w64-mingw32-strip current_release/${BIN_NAME}
-            upx --best --ultra-brute current_release/${BIN_NAME}
+            upx --best --brute current_release/${BIN_NAME}
             shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
           fi
           
