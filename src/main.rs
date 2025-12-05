@@ -1,8 +1,10 @@
 #![cfg_attr(feature = "gui", windows_subsystem = "windows")]
 
 use clap::Parser;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool};
+#[cfg(not(feature = "gui"))]
+use std::io::IsTerminal;
 #[cfg(not(feature = "gui"))]
 use std::env;
 #[cfg(not(feature = "gui"))]
@@ -42,14 +44,9 @@ fn main() {
         return;
     }
 
-    //info!("manganese v{}", env!("CARGO_PKG_VERSION"));
-
-    // Detect terminal
-    let is_terminal = io::stdout().is_terminal();
-
     // CLI-only fallback
     #[cfg(not(feature = "gui"))]
-    if ! is_terminal {
+    if ! io::stdout().is_terminal() {
         spawn_terminal();
     }
 
@@ -65,6 +62,8 @@ fn run_cli(args: Args) {
     sys.refresh_memory();
 
     init_cli_logger();
+
+    info!("manganese v{} 🎉", env!("CARGO_PKG_VERSION"));
 
     let ram_input = args.ram.unwrap_or_else(|| {
         error!("usage: manganese [0%-99%|4GiB|8%t|300MiB]");

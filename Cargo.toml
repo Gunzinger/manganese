@@ -16,8 +16,8 @@ sysinfo = "0.37.2"
 log = "0.4.29"
 
 # GUI dependencies behind feature flag
-eframe = { version = "0.33.2", optional = true }
-egui = { version = "0.33.2", optional = true }
+eframe = { version = "0.33.2", optional = true, features = ["persistence"] }
+egui = { version = "0.33.2", optional = true, features = ["persistence"] }
 simplelog = "0.12.2"
 
 [profile.release]

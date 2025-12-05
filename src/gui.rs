@@ -7,7 +7,7 @@ use std::sync::{
 use std::thread;
 
 use eframe::{egui, run_native, NativeOptions};
-use egui::{CentralPanel, ScrollArea, TextEdit};
+use egui::{CentralPanel, ScrollArea, TextEdit, Context, FontDefinitions, FontFamily, ViewportBuilder, Color32};
 
 use manganese_core::{parse_ram_spec, run_tests, RamSpec};
 use sysinfo::{RefreshKind, System};
@@ -39,11 +39,24 @@ fn init_gui_logger(buffer: Arc<Mutex<String>>) -> Result<(), SetLoggerError> {
 }
 
 pub fn launch_gui() -> eframe::Result<()> {
-    let native_options = NativeOptions::default();
+    let native_options = NativeOptions {
+        viewport: ViewportBuilder::default()
+            .with_title(format!("Manganese RAM Tester {} 🎉", env!("CARGO_PKG_VERSION")).to_owned())
+            .with_inner_size(egui::Vec2::new(600.0, 800.0))
+            .with_position(egui::Pos2::new(100.0, 100.0)),
+        multisampling: 0, // reduce GPU load
+        persist_window: true, // saves window position :)
+        vsync: true, // sync redraw to monitor refresh
+        ..Default::default()
+    };
     run_native(
-        "Manganese RAM Tester",
+        format!("Manganese RAM Tester {} 🎉", env!("CARGO_PKG_VERSION")).as_str(),
         native_options,
-        Box::new(|_cc| Ok(Box::new(GuiApp::default()))),
+        Box::new(|cc|{
+            let app = Box::new(GuiApp::default());
+            //apply_monospace_fonts(&cc.egui_ctx);
+            Ok(app)
+        }),
     )
 }
 
@@ -83,14 +96,15 @@ impl eframe::App for GuiApp {
                 ui.label("RAM to test:");
                 ui.add(
                     TextEdit::singleline(&mut self.ram_input)
-                        .hint_text("e.g. 4GiB, 50%, 10%t"),
+                        .hint_text("e.g. 4GiB, 50%, 10%t")
+                        .desired_width(200.0),
                 );
+                ui.spacing();
+                ui.checkbox(&mut self.hide_serials, "Hide serial numbers");
             });
 
-            ui.checkbox(&mut self.hide_serials, "Hide serials");
-
             if !self.running {
-                if ui.button("Start").clicked() {
+                if ui.add(egui::Button::new("Start").fill(Color32::DARK_GREEN)).clicked() {
                     // compute ram_bytes
                     let mut sys = System::new_with_specifics(
                         RefreshKind::everything(),
@@ -127,7 +141,7 @@ impl eframe::App for GuiApp {
                     }));
                 }
             } else {
-                if ui.button("Stop").clicked() {
+                if ui.add(egui::Button::new("Stop").fill(Color32::DARK_RED)).clicked() {
                     self.stop_flag.store(true, Ordering::SeqCst);
                     self.status = "Stopping...".to_string();
                     // after stop, we expect run_tests to exit — the thread will drop guard & capture output
@@ -144,9 +158,12 @@ impl eframe::App for GuiApp {
             ui.label("Console output:");
             ScrollArea::vertical()
                 .auto_shrink([false; 2])
+                .stick_to_bottom(true) // sticky-bottom behavior
                 .show(ui, |ui| {
                     let log = self.log_buffer.lock().unwrap();
-                    ui.label(log.as_str());
+                    let text = log.as_str();
+                    // Use a label to display the log
+                    ui.label(text);
                 });
 
             // Reset running status if stop flag is cleared and thread finished
