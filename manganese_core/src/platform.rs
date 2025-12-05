@@ -93,13 +93,13 @@ mod windows {
         ) as usize;
 
         if raw_ptr == 0 {
-            //eprintln!("Trying to alloc memory (in aligned_alloc): {:?}", raw_ptr);
+            //error!("Trying to alloc memory (in aligned_alloc): {:?}", raw_ptr);
             return null_mut();
         }
 
         // align manually
         let aligned_ptr = ((raw_ptr + alignment - 1) & !(alignment - 1)) as *mut u8;
-        //eprintln!("Trying to alloc memory (in aligned_alloc), aligned: {:?}", aligned_ptr);
+        //error!("Trying to alloc memory (in aligned_alloc), aligned: {:?}", aligned_ptr);
 
         aligned_ptr
     }

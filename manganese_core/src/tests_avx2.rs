@@ -1,20 +1,21 @@
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 use std::sync::atomic::AtomicU64;
-use crate::simd_xorshift::Avx512Xorshift128PlusKey;
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-use crate::simd_xorshift::{avx512_xorshift128plus, avx512_xorshift128plus_init};
+use log::error;
+#[cfg(target_arch = "x86_64")]
+use crate::simd_xorshift::AvxXorshift128PlusKey;
+#[cfg(target_arch = "x86_64")]
+use crate::simd_xorshift::{avx_xorshift128plus, avx_xorshift128plus_init};
 
 static mut CPUS: usize = 0;
 static mut ERRORS: *const AtomicU64 = std::ptr::null();
-static mut RNG: Avx512Xorshift128PlusKey = Avx512Xorshift128PlusKey {
+static mut RNG: AvxXorshift128PlusKey = AvxXorshift128PlusKey {
     part1: unsafe { std::mem::zeroed() },
     part2: unsafe { std::mem::zeroed() },
 };
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_tests_init(cpus: usize, errors: *const AtomicU64) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_tests_init(cpus: usize, errors: *const AtomicU64) {
     CPUS = cpus;
     ERRORS = errors;
     
@@ -24,39 +25,38 @@ pub unsafe fn avx512_tests_init(cpus: usize, errors: *const AtomicU64) {
         _rdrand64_step(&mut r1);
         _rdrand64_step(&mut r2);
     }
-    avx512_xorshift128plus_init(r1, r2, &mut RNG);
+    avx_xorshift128plus_init(r1, r2, &mut RNG);
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn get(mem: *const u8, idx: usize, expected: __m512i) {
-    let actual = _mm512_load_si512((mem.add(idx)) as *const __m512i);
-    _mm_lfence();
-    let result = _mm512_cmp_epu8_mask(expected, actual, _MM_CMPINT_NE);
+#[cfg(target_arch = "x86_64")]
+unsafe fn get(mem: *const u8, idx: usize, expected: __m256i) {
+    let actual = _mm256_load_si256((mem.add(idx)) as *const __m256i);
+    let cmp = _mm256_cmpeq_epi8(expected, actual);
+    let result = _mm256_testz_si256(cmp, cmp);
     
     if result != 0 {
-        let error_total = result.count_ones() as u64;
-        eprintln!("{} errors detected at offset 0x{:016x} [error mask: 0x{:016x}]", error_total, idx, result);
-        (*ERRORS).fetch_add(error_total, std::sync::atomic::Ordering::Relaxed);
+        error!("errors detected at offset 0x{:016x}", idx);
+        (*ERRORS).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn get_all_up(mem: *const u8, size: usize, expected: __m512i) {
+#[cfg(target_arch = "x86_64")]
+unsafe fn get_all_up(mem: *const u8, size: usize, expected: __m256i) {
     use rayon::prelude::*;
-    let mem_usize = mem as usize;
+    let mem_usize = mem as usize;  // Convert to usize for thread safety
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *const u8;
         let chunk_size = size / CPUS;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
             get(mem_ptr, idx, expected);
         }
     });
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn get_all_down(mem: *const u8, size: usize, expected: __m512i) {
+#[cfg(target_arch = "x86_64")]
+unsafe fn get_all_down(mem: *const u8, size: usize, expected: __m256i) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
     
@@ -65,37 +65,37 @@ unsafe fn get_all_down(mem: *const u8, size: usize, expected: __m512i) {
         let mem_ptr = mem_usize as *const u8;
         let start = i * chunk_size;
         let end = start + chunk_size;
-        // Iterate from end-64 down to start, stepping by 64
-        let mut j = ((end - start) / 64) * 64 + start;  // Last aligned position
-        while j >= start + 64 {
-            j -= 64;
+        // Iterate from end-32 down to start, stepping by 32
+        let mut j = ((end - start) / 32) * 32 + start;  // Last aligned position
+        while j >= start + 32 {
+            j -= 32;
             get(mem_ptr, j, expected);
         }
     });
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn set(mem: *mut u8, idx: usize, val: __m512i) {
-    _mm512_stream_si512((mem.add(idx)) as *mut __m512i, val);
+#[cfg(target_arch = "x86_64")]
+unsafe fn set(mem: *mut u8, idx: usize, val: __m256i) {
+    _mm256_stream_si256((mem.add(idx)) as *mut __m256i, val);
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn set_all_up(mem: *mut u8, size: usize, val: __m512i) {
+#[cfg(target_arch = "x86_64")]
+unsafe fn set_all_up(mem: *mut u8, size: usize, val: __m256i) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *mut u8;
         let chunk_size = size / CPUS;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
             set(mem_ptr, idx, val);
         }
     });
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn set_all_down(mem: *mut u8, size: usize, val: __m512i) {
+#[cfg(target_arch = "x86_64")]
+unsafe fn set_all_down(mem: *mut u8, size: usize, val: __m256i) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
     
@@ -104,20 +104,20 @@ unsafe fn set_all_down(mem: *mut u8, size: usize, val: __m512i) {
         let mem_ptr = mem_usize as *mut u8;
         let start = i * chunk_size;
         let end = start + chunk_size;
-        // Iterate from end-64 down to start, stepping by 64
-        let mut j = ((end - start) / 64) * 64 + start;  // Last aligned position
-        while j >= start + 64 {
-            j -= 64;
+        // Iterate from end-32 down to start, stepping by 32
+        let mut j = ((end - start) / 32) * 32 + start;  // Last aligned position
+        while j >= start + 32 {
+            j -= 32;
             set(mem_ptr, j, val);
         }
     });
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_basic_tests(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_basic_tests(mem: *mut u8, size: usize) {
     let patterns = [0x00u8, 0xFF, 0x0F, 0xF0, 0x55, 0xAA];
     for pattern_val in &patterns {
-        let pattern = _mm512_set1_epi8(*pattern_val as i8);
+        let pattern = _mm256_set1_epi8(*pattern_val as i8);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         set_all_down(mem, size, pattern);
@@ -125,30 +125,32 @@ pub unsafe fn avx512_basic_tests(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_march(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
     
     for _ in 0..2 {
-        let ones = _mm512_set1_epi8(0xFFu8 as i8);
-        let zeroes = _mm512_set1_epi8(0x00u8 as i8);
+        let ones = _mm256_set1_epi8(0xFFu8 as i8);
+        let zeroes = _mm256_set1_epi8(0x00u8 as i8);
         let chunk_size = size / CPUS;
         
+        // Down: set zeroes
         (0..CPUS).into_par_iter().rev().for_each(|i| {
             let mem_ptr = mem_usize as *mut u8;
             let start = i * chunk_size;
             let end = start + chunk_size;
-            for j in (start..end).rev().step_by(64) {
-                if j + 64 <= end {
+            for j in (start..end).rev().step_by(32) {
+                if j + 32 <= end {
                     set(mem_ptr, j, zeroes);
                 }
             }
         });
         
+        // Up: get zeroes, set ones, get ones, set zeroes, get zeroes, set ones
         (0..CPUS).into_par_iter().for_each(|i| {
             let mem_ptr = mem_usize as *mut u8;
-            for j in (0..chunk_size).step_by(64) {
+            for j in (0..chunk_size).step_by(32) {
                 let idx = j + i * chunk_size;
                 get(mem_ptr as *const u8, idx, zeroes);
                 set(mem_ptr, idx, ones);
@@ -159,9 +161,10 @@ pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
             }
         });
         
+        // Up: get ones, set zeroes, set ones
         (0..CPUS).into_par_iter().for_each(|i| {
             let mem_ptr = mem_usize as *mut u8;
-            for j in (0..chunk_size).step_by(64) {
+            for j in (0..chunk_size).step_by(32) {
                 let idx = j + i * chunk_size;
                 get(mem_ptr as *const u8, idx, ones);
                 set(mem_ptr, idx, zeroes);
@@ -169,12 +172,13 @@ pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
             }
         });
         
+        // Down: get ones, set zeroes, set ones, set zeroes
         (0..CPUS).into_par_iter().rev().for_each(|i| {
             let mem_ptr = mem_usize as *mut u8;
             let start = i * chunk_size;
             let end = start + chunk_size;
-            for j in (start..end).rev().step_by(64) {
-                if j + 64 <= end {
+            for j in (start..end).rev().step_by(32) {
+                if j + 32 <= end {
                     get(mem_ptr as *const u8, j, ones);
                     set(mem_ptr, j, zeroes);
                     set(mem_ptr, j, ones);
@@ -183,12 +187,13 @@ pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
             }
         });
         
+        // Down: get zeroes, set ones, set zeroes
         (0..CPUS).into_par_iter().rev().for_each(|i| {
             let mem_ptr = mem_usize as *mut u8;
             let start = i * chunk_size;
             let end = start + chunk_size;
-            for j in (start..end).rev().step_by(64) {
-                if j + 64 <= end {
+            for j in (start..end).rev().step_by(32) {
+                if j + 32 <= end {
                     get(mem_ptr as *const u8, j, zeroes);
                     set(mem_ptr, j, ones);
                     set(mem_ptr, j, zeroes);
@@ -198,27 +203,26 @@ pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_random_inversions(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_random_inversions(mem: *mut u8, size: usize) {
     for _ in 0..16 {
-        let pattern = avx512_xorshift128plus(&mut RNG);
+        let pattern = avx_xorshift128plus(&mut RNG);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
 }
 
-// Moving inversions for AVX-512 - using macros for compile-time constant shifts
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_moving_inversions_left_64(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_moving_inversions_left_64(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi64(0x0000000000000001));
+            let pattern = _mm256_slli_epi64::<$i>(_mm256_set1_epi64x(0x0000000000000001));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -247,14 +251,14 @@ pub unsafe fn avx512_moving_inversions_left_64(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_moving_inversions_right_32(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_moving_inversions_right_32(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi64::<$i>(_mm512_set1_epi32(0x80000000u32 as i32));
+            let pattern = _mm256_srli_epi64::<$i>(_mm256_set1_epi32(0x80000000u32 as i32));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -275,14 +279,14 @@ pub unsafe fn avx512_moving_inversions_right_32(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_moving_inversions_left_16(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_moving_inversions_left_16(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi16(0x0001u16 as i16));
+            let pattern = _mm256_slli_epi64::<$i>(_mm256_set1_epi16(0x0001));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -299,14 +303,14 @@ pub unsafe fn avx512_moving_inversions_left_16(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_moving_inversions_right_8(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_moving_inversions_right_8(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi64::<$i>(_mm512_set1_epi8(0x80u8 as i8));
+            let pattern = _mm256_srli_epi64::<$i>(_mm256_set1_epi8(0x80u8 as i8));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -321,14 +325,14 @@ pub unsafe fn avx512_moving_inversions_right_8(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_moving_inversions_left_4(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_moving_inversions_left_4(mem: *mut u8, size: usize) {
     macro_rules! do_shift {
         ($i:expr) => {{
-            let pattern = _mm512_slli_epi64::<$i>(_mm512_set1_epi8(0x11u8 as i8));
+            let pattern = _mm256_slli_epi64::<$i>(_mm256_set1_epi8(0x11u8 as i8));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+            let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
             set_all_up(mem, size, not_pattern);
             get_all_up(mem as *const u8, size, not_pattern);
         }};
@@ -342,19 +346,19 @@ pub unsafe fn avx512_moving_inversions_left_4(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_moving_saturations_right_16(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_moving_saturations_right_16(mem: *mut u8, size: usize) {
     macro_rules! do_test {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi16::<$i>(_mm512_set1_epi16(0x8000u16 as i16));
+            let pattern = _mm256_srli_epi16::<$i>(_mm256_set1_epi16(0x8000u16 as i16));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let zeroes = _mm512_set1_epi8(0x00u8 as i8);
+            let zeroes = _mm256_set1_epi8(0x00u8 as i8);
             set_all_up(mem, size, zeroes);
             get_all_up(mem as *const u8, size, zeroes);
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let ones = _mm512_set1_epi8(0xFFu8 as i8);
+            let ones = _mm256_set1_epi8(0xFFu8 as i8);
             set_all_up(mem, size, ones);
             get_all_up(mem as *const u8, size, ones);
         }};
@@ -371,19 +375,19 @@ pub unsafe fn avx512_moving_saturations_right_16(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_moving_saturations_left_8(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_moving_saturations_left_8(mem: *mut u8, size: usize) {
     macro_rules! do_test {
         ($i:expr) => {{
-            let pattern = _mm512_srli_epi16::<$i>(_mm512_set1_epi16(0x01u16 as i16));
+            let pattern = _mm256_srli_epi16::<$i>(_mm256_set1_epi16(0x01));
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let zeroes = _mm512_set1_epi8(0x00u8 as i8);
+            let zeroes = _mm256_set1_epi8(0x00u8 as i8);
             set_all_up(mem, size, zeroes);
             get_all_up(mem as *const u8, size, zeroes);
             set_all_up(mem, size, pattern);
             get_all_up(mem as *const u8, size, pattern);
-            let ones = _mm512_set1_epi8(0xFFu8 as i8);
+            let ones = _mm256_set1_epi8(0xFFu8 as i8);
             set_all_up(mem, size, ones);
             get_all_up(mem as *const u8, size, ones);
         }};
@@ -398,31 +402,31 @@ pub unsafe fn avx512_moving_saturations_left_8(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_addressing(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_addressing(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
     let chunk_size = size / CPUS;
     
     for _ in 0..16 {
-        let increasing = _mm512_set_epi64(56, 48, 40, 32, 24, 16, 8, 0);
+        let increasing = _mm256_set_epi64x(24, 16, 8, 0);
         
         (0..CPUS).into_par_iter().for_each(|i| {
             let mem_ptr = mem_usize as *mut u8;
-            for j in (0..chunk_size).step_by(64) {
+            for j in (0..chunk_size).step_by(32) {
                 let idx = j + i * chunk_size;
                 let addr_val = idx as i64;
-                let pattern = _mm512_add_epi64(_mm512_set1_epi64(addr_val), increasing);
+                let pattern = _mm256_add_epi64(_mm256_set1_epi64x(addr_val), increasing);
                 set(mem_ptr, idx, pattern);
             }
         });
         
         (0..CPUS).into_par_iter().for_each(|i| {
             let mem_ptr = mem_usize as *const u8;
-            for j in (0..chunk_size).step_by(64) {
+            for j in (0..chunk_size).step_by(32) {
                 let idx = j + i * chunk_size;
                 let addr_val = idx as i64;
-                let expected = _mm512_add_epi64(_mm512_set1_epi64(addr_val), increasing);
+                let expected = _mm256_add_epi64(_mm256_set1_epi64x(addr_val), increasing);
                 get(mem_ptr, idx, expected);
             }
         });
@@ -431,10 +435,10 @@ pub unsafe fn avx512_addressing(mem: *mut u8, size: usize) {
             let mem_ptr = mem_usize as *mut u8;
             let start = i * chunk_size;
             let end = start + chunk_size;
-            for j in (start..end).rev().step_by(64) {
-                if j + 64 <= end {
+            for j in (start..end).rev().step_by(32) {
+                if j + 32 <= end {
                     let addr_val = j as i64;
-                    let pattern = _mm512_add_epi64(_mm512_set1_epi64(addr_val), increasing);
+                    let pattern = _mm256_add_epi64(_mm256_set1_epi64x(addr_val), increasing);
                     set(mem_ptr, j, pattern);
                 }
             }
@@ -444,10 +448,10 @@ pub unsafe fn avx512_addressing(mem: *mut u8, size: usize) {
             let mem_ptr = mem_usize as *const u8;
             let start = i * chunk_size;
             let end = start + chunk_size;
-            for j in (start..end).rev().step_by(64) {
-                if j + 64 <= end {
+            for j in (start..end).rev().step_by(32) {
+                if j + 32 <= end {
                     let addr_val = j as i64;
-                    let expected = _mm512_add_epi64(_mm512_set1_epi64(addr_val), increasing);
+                    let expected = _mm256_add_epi64(_mm256_set1_epi64x(addr_val), increasing);
                     get(mem_ptr, j, expected);
                 }
             }
@@ -455,107 +459,109 @@ pub unsafe fn avx512_addressing(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_sgemm(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_sgemm(mem: *mut u8, size: usize) {
     // SGEMM test requires OpenBLAS - skip if not available
+    // In Rust, we'd need bindings to OpenBLAS or implement a simple GEMM
+    // For now, we'll skip it like the C version does when OpenBLAS is not available
     let _ = mem;
     let _ = size;
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_walking_1(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_walking_1(mem: *mut u8, size: usize) {
     for bit in 0..64 {
         let pattern_val = 1u64 << bit;
-        let pattern = _mm512_set1_epi64(pattern_val as i64);
+        let pattern = _mm256_set1_epi64x(pattern_val as i64);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_walking_0(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_walking_0(mem: *mut u8, size: usize) {
     for bit in 0..64 {
         let pattern_val = !(1u64 << bit);
-        let pattern = _mm512_set1_epi64(pattern_val as i64);
+        let pattern = _mm256_set1_epi64x(pattern_val as i64);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
-        let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+        let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, not_pattern);
         get_all_up(mem as *const u8, size, not_pattern);
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_checkerboard(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_checkerboard(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
     let chunk_size = size / CPUS;
     
-    let pattern1 = _mm512_set1_epi8(0xAAu8 as i8);
-    let pattern2 = _mm512_set1_epi8(0x55u8 as i8);
+    let pattern1 = _mm256_set1_epi8(0xAAu8 as i8);
+    let pattern2 = _mm256_set1_epi8(0x55u8 as i8);
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *mut u8;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
-            let pattern = if ((idx / 64) % 2) != 0 { pattern1 } else { pattern2 };
+            let pattern = if ((idx / 32) % 2) != 0 { pattern1 } else { pattern2 };
             set(mem_ptr, idx, pattern);
         }
     });
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *const u8;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
-            let expected = if ((idx / 64) % 2) != 0 { pattern1 } else { pattern2 };
+            let expected = if ((idx / 32) % 2) != 0 { pattern1 } else { pattern2 };
             get(mem_ptr, idx, expected);
         }
     });
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *mut u8;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
-            let pattern = if ((idx / 64) % 2) != 0 { pattern2 } else { pattern1 };
+            let pattern = if ((idx / 32) % 2) != 0 { pattern2 } else { pattern1 };
             set(mem_ptr, idx, pattern);
         }
     });
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *const u8;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
-            let expected = if ((idx / 64) % 2) != 0 { pattern2 } else { pattern1 };
+            let expected = if ((idx / 32) % 2) != 0 { pattern2 } else { pattern1 };
             get(mem_ptr, idx, expected);
         }
     });
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_address_line_test(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_address_line_test(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
     let chunk_size = size / CPUS;
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *mut u8;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
             let addr_pattern = idx as u64;
-            let pattern = _mm512_set1_epi64(addr_pattern as i64);
+            let pattern = _mm256_set1_epi64x(addr_pattern as i64);
             set(mem_ptr, idx, pattern);
         }
     });
     
     (0..CPUS).into_par_iter().for_each(|i| {
         let mem_ptr = mem_usize as *const u8;
-        for j in (0..chunk_size).step_by(64) {
+        for j in (0..chunk_size).step_by(32) {
             let idx = j + i * chunk_size;
             let addr_pattern = idx as u64;
-            let expected = _mm512_set1_epi64(addr_pattern as i64);
+            let expected = _mm256_set1_epi64x(addr_pattern as i64);
             get(mem_ptr, idx, expected);
         }
     });
@@ -564,10 +570,10 @@ pub unsafe fn avx512_address_line_test(mem: *mut u8, size: usize) {
         let mem_ptr = mem_usize as *mut u8;
         let start = i * chunk_size;
         let end = start + chunk_size;
-        for j in (start..end).rev().step_by(64) {
-            if j + 64 <= end {
+        for j in (start..end).rev().step_by(32) {
+            if j + 32 <= end {
                 let addr_pattern = !j as u64;
-                let pattern = _mm512_set1_epi64(addr_pattern as i64);
+                let pattern = _mm256_set1_epi64x(addr_pattern as i64);
                 set(mem_ptr, j, pattern);
             }
         }
@@ -577,10 +583,10 @@ pub unsafe fn avx512_address_line_test(mem: *mut u8, size: usize) {
         let mem_ptr = mem_usize as *const u8;
         let start = i * chunk_size;
         let end = start + chunk_size;
-        for j in (start..end).rev().step_by(64) {
-            if j + 64 <= end {
+        for j in (start..end).rev().step_by(32) {
+            if j + 32 <= end {
                 let addr_pattern = !j as u64;
-                let expected = _mm512_set1_epi64(addr_pattern as i64);
+                let expected = _mm256_set1_epi64x(addr_pattern as i64);
                 get(mem_ptr, j, expected);
             }
         }
@@ -590,20 +596,20 @@ pub unsafe fn avx512_address_line_test(mem: *mut u8, size: usize) {
     while shift <= 16 {
         (0..CPUS).into_par_iter().for_each(|i| {
             let mem_ptr = mem_usize as *mut u8;
-            for j in (0..chunk_size).step_by(64) {
+            for j in (0..chunk_size).step_by(32) {
                 let idx = j + i * chunk_size;
                 let addr_pattern = idx as u64 ^ ((idx as u64) << shift);
-                let pattern = _mm512_set1_epi64(addr_pattern as i64);
+                let pattern = _mm256_set1_epi64x(addr_pattern as i64);
                 set(mem_ptr, idx, pattern);
             }
         });
         
         (0..CPUS).into_par_iter().for_each(|i| {
             let mem_ptr = mem_usize as *const u8;
-            for j in (0..chunk_size).step_by(64) {
+            for j in (0..chunk_size).step_by(32) {
                 let idx = j + i * chunk_size;
                 let addr_pattern = idx as u64 ^ ((idx as u64) << shift);
-                let expected = _mm512_set1_epi64(addr_pattern as i64);
+                let expected = _mm256_set1_epi64x(addr_pattern as i64);
                 get(mem_ptr, idx, expected);
             }
         });
@@ -611,8 +617,8 @@ pub unsafe fn avx512_address_line_test(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_anti_patterns(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_anti_patterns(mem: *mut u8, size: usize) {
     let patterns = [
         0x00, 0xFF, 0x0F, 0xF0, 0x55, 0xAA, 0x33, 0xCC,
         0x11, 0xEE, 0x22, 0xDD, 0x44, 0xBB, 0x66, 0x99,
@@ -622,8 +628,8 @@ pub unsafe fn avx512_anti_patterns(mem: *mut u8, size: usize) {
     ];
     
     for pattern_val in &patterns {
-        let pattern = _mm512_set1_epi8(*pattern_val as i8);
-        let anti_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+        let pattern = _mm256_set1_epi8(*pattern_val as i8);
+        let anti_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
@@ -637,17 +643,17 @@ pub unsafe fn avx512_anti_patterns(mem: *mut u8, size: usize) {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_inverse_data_patterns(mem: *mut u8, size: usize) {
+#[cfg(target_arch = "x86_64")]
+pub unsafe fn avx2_inverse_data_patterns(mem: *mut u8, size: usize) {
     for byte_idx in 0..8 {
         let base_pattern = 0xFFFFFFFFFFFFFFFFu64;
         let pattern_val = base_pattern ^ (0xFFu64 << (byte_idx * 8));
-        let pattern = _mm512_set1_epi64(pattern_val as i64);
+        let pattern = _mm256_set1_epi64x(pattern_val as i64);
         
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
@@ -655,12 +661,12 @@ pub unsafe fn avx512_inverse_data_patterns(mem: *mut u8, size: usize) {
     for word_idx in 0..4 {
         let base_pattern = 0xFFFFFFFFFFFFFFFFu64;
         let pattern_val = base_pattern ^ (0xFFFFu64 << (word_idx * 16));
-        let pattern = _mm512_set1_epi64(pattern_val as i64);
+        let pattern = _mm256_set1_epi64x(pattern_val as i64);
         
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
@@ -668,54 +674,55 @@ pub unsafe fn avx512_inverse_data_patterns(mem: *mut u8, size: usize) {
     for dword_idx in 0..2 {
         let base_pattern = 0xFFFFFFFFFFFFFFFFu64;
         let pattern_val = base_pattern ^ (0xFFFFFFFFu64 << (dword_idx * 32));
-        let pattern = _mm512_set1_epi64(pattern_val as i64);
+        let pattern = _mm256_set1_epi64x(pattern_val as i64);
         
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         
-        let inverse = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
+        let inverse = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
         set_all_up(mem, size, inverse);
         get_all_up(mem as *const u8, size, inverse);
     }
 }
 
 //FIXME: remove stubs and/or error out when running in unsupported configuration
-// Stub implementations for non-AVX512 targets
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_tests_init(_cpus: usize, _errors: *const AtomicU64) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_basic_tests(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_march(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_random_inversions(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_moving_inversions_left_64(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_moving_inversions_right_32(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_moving_inversions_left_16(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_moving_inversions_right_8(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_moving_inversions_left_4(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_moving_saturations_right_16(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_moving_saturations_left_8(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_addressing(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_sgemm(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_walking_1(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_walking_0(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_checkerboard(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_address_line_test(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_anti_patterns(_mem: *mut u8, _size: usize) {}
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub unsafe fn avx512_inverse_data_patterns(_mem: *mut u8, _size: usize) {}
+// Stub implementations for non-x86_64 targets
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_tests_init(_cpus: usize, _errors: *const AtomicU64) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_basic_tests(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_march(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_random_inversions(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_moving_inversions_left_64(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_moving_inversions_right_32(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_moving_inversions_left_16(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_moving_inversions_right_8(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_moving_inversions_left_4(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_moving_saturations_right_16(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_moving_saturations_left_8(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_addressing(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_sgemm(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_walking_1(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_walking_0(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_checkerboard(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_address_line_test(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_anti_patterns(_mem: *mut u8, _size: usize) {}
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn avx2_inverse_data_patterns(_mem: *mut u8, _size: usize) {}
+

@@ -1,4 +1,5 @@
 // No imports needed here - cpuid handled via module
+use log::{error};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstructionSet {
@@ -103,10 +104,10 @@ pub fn hardware_ram_speed(configured: bool) -> u64 {
     let size = unsafe { GetSystemFirmwareTable(provider, 0, None) };
     //let size_ACPI = unsafe { GetSystemFirmwareTable(provider_ACPI, 0, None) };
     if size == 0 {
-        eprintln!("Failed to get system firmware table (1) RSMB: {}", size);
+        error!("Failed to get system firmware table (1) RSMB: {}", size);
         return 0;
     }
-    //eprintln!("got system firmware table (1) RSMB: {}, ACPI: {}, FIRM: {}", size, size_ACPI, size_FIRM);
+    //error!("got system firmware table (1) RSMB: {}, ACPI: {}, FIRM: {}", size, size_ACPI, size_FIRM);
 
     // Step 2: allocate buffer
     let mut buffer = vec![0u8; size as usize];
@@ -114,7 +115,7 @@ pub fn hardware_ram_speed(configured: bool) -> u64 {
     // Step 3: retrieve table
     let ret = unsafe { GetSystemFirmwareTable(provider, 0, Some(&mut buffer[..])) };
     if ret != size {
-        eprintln!("Failed to get system firmware table (3)");
+        error!("Failed to get system firmware table (3)");
         return 0;
     }
 
@@ -126,7 +127,7 @@ pub fn hardware_ram_speed(configured: bool) -> u64 {
         let entry_type = buffer[offset];
         let length = buffer[offset + 1] as usize;
 
-        //eprintln!("RSMBinfo @ {} (/{}): {} / {}", offset, buffer.len(), entry_type, length);
+        //error!("RSMBinfo @ {} (/{}): {} / {}", offset, buffer.len(), entry_type, length);
         // see e.g. smbioslib https://github.com/jrgerber/smbios-lib/blob/942b892559b88e921f986f05b00641594c518d73/src/structs/types/memory_device.rs#L176
 
         if length < 4 {
@@ -282,6 +283,7 @@ pub struct SystemInfo {
     pub memory_devices: Vec<MemoryInfo>, // includes recorded slots; populated flag indicates actual module
     /// Type 16 NumberOfDevices (if present and >0)
     pub memory_array_slots: Option<u8>,
+    pub hide_serials: bool,
 }
 
 #[derive(Debug, Default)]
@@ -342,9 +344,17 @@ impl fmt::Display for SystemInfo {
 
         if let Some(board) = &self.board {
             if board.version.to_ascii_lowercase() == "Default String".to_ascii_lowercase() {
-                writeln!(f, "Board: {} {}, Serial: {}", board.manufacturer, board.product, board.serial)?;
+                if self.hide_serials {
+                    writeln!(f, "Board: {} {}", board.manufacturer, board.product)?;
+                } else {
+                    writeln!(f, "Board: {} {}, Serial: {}", board.manufacturer, board.product, board.serial)?;
+                }
             } else {
-                writeln!(f, "Board: {} {}, Version: {}, Serial: {}", board.manufacturer, board.product, board.version, board.serial)?;
+                if self.hide_serials {
+                    writeln!(f, "Board: {} {}, Version: {}", board.manufacturer, board.product, board.version)?;
+                } else {
+                    writeln!(f, "Board: {} {}, Version: {}, Serial: {}", board.manufacturer, board.product, board.version, board.serial)?;
+                }
             }
         }
 
@@ -371,7 +381,11 @@ impl fmt::Display for SystemInfo {
                     writeln!(f, "  Slot {}: {} MB @ {}MT/s (spec at {}MT/s), Locator: {}",
                              i+1, m.size_mb, m.configured_speed, m.speed, m.locator)?;
                     if !m.manufacturer.is_empty() {
-                        writeln!(f, "   Manufacturer: {}, Part: {}, Serial: {}", m.manufacturer, m.part_number, m.serial)?;
+                        if self.hide_serials {
+                            writeln!(f, "   Manufacturer: {}, Part: {}", m.manufacturer, m.part_number)?;
+                        } else {
+                            writeln!(f, "   Manufacturer: {}, Part: {}, Serial: {}", m.manufacturer, m.part_number, m.serial)?;
+                        }
                     }
                 }
             }
@@ -830,11 +844,12 @@ impl SystemInfo {
 
 #[cfg(test)]
 mod tests {
+    use log::info;
     use super::*;
     #[test]
     fn smoke_collect() {
         let info = collect_system_info();
-        println!("{:#?}", info);
-        println!("{}", info);
+        info!("{:#?}", info);
+        info!("{}", info);
     }
 }
