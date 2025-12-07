@@ -8,7 +8,7 @@ mod config;
 
 use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
 use std::time::Instant;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use crate::config::{build_tests_from_config, load_custom_config};
 pub use crate::hardware::{hardware_cpu_count, hardware_instruction_set, hardware_is_needlessly_disabled, hardware_ram_speed, InstructionSet};
 pub use crate::platform::{aligned_alloc, aligned_free, getpagesize, mlock, sysinfo};
@@ -170,7 +170,7 @@ pub fn run_tests(ram_bytes: usize, hide_serials: bool, stop_signal: &AtomicBool)
             }
 
             test_start = Instant::now();
-            let mut bandwidth: f64 = 0.;
+            let mut bandwidth: f64;
             for i in 1..(test.loops+1) {
                 if stop_signal.load(Ordering::SeqCst) {
                     break;
@@ -178,12 +178,16 @@ pub fn run_tests(ram_bytes: usize, hide_serials: bool, stop_signal: &AtomicBool)
                 unsafe {
                     (test.run)(mem_ptr, size);
                 }
-                if i+1 >= test.loops {
+                if i+1 < test.loops {
                     bandwidth = (test.passes * test.iters * i) as f64 * (size as f64 / (1000. * 1000.)) / test_start.elapsed().as_secs_f64();
-                    debug!("... {}MB/s ...", bandwidth);
+                    info!("... {} ({}/{}) [avg. BW {:.0}MB/s] ...",
+                        test.name,
+                        i, test.loops,
+                        bandwidth);
                 }
             }
-            info!("{} completed in {:.2} sec [{:.0}MB/s]", test.name, test_start.elapsed().as_secs_f64(), bandwidth);
+            bandwidth = (test.passes * test.iters * test.loops) as f64 * (size as f64 / (1000. * 1000.)) / test_start.elapsed().as_secs_f64();
+            info!("{} completed in {:.2} sec [avg. BW {:.0}MB/s]", test.name, test_start.elapsed().as_secs_f64(), bandwidth);
         }
 
         let errors = ERRORS.load(Ordering::Relaxed);
