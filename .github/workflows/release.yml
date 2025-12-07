@@ -115,9 +115,7 @@ jobs:
         shell: bash
         run: |
           sed -i "s/0\\.0\\.0-git/${VERSION}/" Cargo.toml
-          head -n 5 Cargo.toml
-          sed -i "s/0\\.0\\.0-git/${VERSION}/" Cargo.lock
-          grep -i -C 5 "manganese" Cargo.lock
+          head -n 10 Cargo.toml
 
       - name: Build binary
         run: |
