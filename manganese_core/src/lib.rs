@@ -178,7 +178,7 @@ pub fn run_tests(ram_bytes: usize, hide_serials: bool, stop_signal: &AtomicBool)
                 unsafe {
                     (test.run)(mem_ptr, size);
                 }
-                if i+1 < test.loops {
+                if i < test.loops {
                     bandwidth = (test.passes * test.iters * i) as f64 * (size as f64 / (1000. * 1000.)) / test_start.elapsed().as_secs_f64();
                     info!("... {} ({}/{}) [avg. BW {:.0}MB/s] ...",
                         test.name,
