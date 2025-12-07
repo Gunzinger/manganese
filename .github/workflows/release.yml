@@ -138,35 +138,36 @@ jobs:
           
           if [[ "${TARGETS}" == *"x86_64-unknown-linux-musl"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              BIN_NAME="manganese-v${VERSION}-avx256"
+              BIN_NAME_LINUX="manganese-v${VERSION}-avx256"
             elif [[ "${CPU}" == "x86-64-v4" ]]; then
-              BIN_NAME="manganese-v${VERSION}-avx512"
+              BIN_NAME_LINUX="manganese-v${VERSION}-avx512"
             else
-              BIN_NAME="manganese-v${VERSION}-${CPU}"
+              BIN_NAME_LINUX="manganese-v${VERSION}-${CPU}"
             fi
-            cp target/x86_64-unknown-linux-musl/release/manganese current_release/${BIN_NAME}
-            chmod +x current_release/${BIN_NAME}
-            strip current_release/${BIN_NAME}
-            upx --best --brute current_release/${BIN_NAME}
-            shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
+            cp target/x86_64-unknown-linux-musl/release/manganese current_release/${BIN_NAME_LINUX}
+            chmod +x current_release/${BIN_NAME_LINUX}
+            strip current_release/${BIN_NAME_LINUX}
+            upx --best --brute current_release/${BIN_NAME_LINUX}
+            shasum -a 256 current_release/${BIN_NAME_LINUX} > current_release/${BIN_NAME_LINUX}.sha256
           fi
           
           if [[ "${TARGETS}" == *"x86_64-pc-windows-gnu"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              BIN_NAME="manganese-v${VERSION}-avx256.exe"
+              BIN_NAME_WINDOWS="manganese-v${VERSION}-avx256.exe"
             elif [[ "${CPU}" == "x86-64-v4" ]]; then
-              BIN_NAME="manganese-v${VERSION}-avx512.exe"
+              BIN_NAME_WINDOWS="manganese-v${VERSION}-avx512.exe"
             else
-              BIN_NAME="manganese-v${VERSION}-${CPU}.exe"
+              BIN_NAME_WINDOWS="manganese-v${VERSION}-${CPU}.exe"
             fi
-            cp target/x86_64-pc-windows-gnu/release/manganese.exe current_release/${BIN_NAME}
-            x86_64-w64-mingw32-strip current_release/${BIN_NAME}
-            upx --best --brute current_release/${BIN_NAME}
-            shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
+            cp target/x86_64-pc-windows-gnu/release/manganese.exe current_release/${BIN_NAME_WINDOWS}
+            x86_64-w64-mingw32-strip current_release/${BIN_NAME_WINDOWS}
+            upx --best --brute current_release/${BIN_NAME_WINDOWS}
+            shasum -a 256 current_release/${BIN_NAME_WINDOWS} > current_release/${BIN_NAME_WINDOWS}.sha256
           fi
           
-          # persist BIN_NAME for the upload step
-          echo "BIN_NAME=${BIN_NAME}" >> $GITHUB_ENV
+          # persist BIN_NAMES for the upload step
+          echo "BIN_NAME_LINUX=${BIN_NAME_LINUX}" >> $GITHUB_ENV
+          echo "BIN_NAME_WINDOWS=${BIN_NAME_WINDOWS}" >> $GITHUB_ENV
 
       - name: Upload linux binary as artifact
         if: matrix.cpu_target == 'x86-64-v3' || matrix.cpu_target == 'x86-64-v4'
@@ -174,7 +175,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: linux-bin-${{ matrix.cpu_target }}
-          path: current_release/${{ env.BIN_NAME }}
+          path: current_release/${{ env.BIN_NAME_LINUX }}
 
       - name: Upload binaries to GitHub Release
         uses: softprops/action-gh-release@v2
