@@ -4,13 +4,15 @@ mod simd_xorshift;
 mod tests;
 mod tests_avx2;
 mod tests_avx512;
+mod config;
 
 use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
 use std::time::Instant;
-use log::{error, info};
+use log::{debug, error, info, warn};
+use crate::config::{build_tests_from_config, load_custom_config};
 pub use crate::hardware::{hardware_cpu_count, hardware_instruction_set, hardware_is_needlessly_disabled, hardware_ram_speed, InstructionSet};
 pub use crate::platform::{aligned_alloc, aligned_free, getpagesize, mlock, sysinfo};
-use crate::tests::tests_init;
+use crate::tests::{tests_init};
 
 pub static ERRORS: AtomicU64 = AtomicU64::new(0);
 
@@ -143,22 +145,45 @@ pub fn run_tests(ram_bytes: usize, hide_serials: bool, stop_signal: &AtomicBool)
     }
 
     let mem_ptr = mem.unwrap();
-    let tests = tests_init(cpu_count, &ERRORS, isa);
-
+    let entries = load_custom_config("manganese.conf").unwrap_or_else(|_| {
+        warn!("config file manganese.conf not found! using defaults...");
+        vec![]
+    });
+    let test_config = build_tests_from_config(&entries, isa);
+    tests_init(cpu_count, &ERRORS, isa);
     info!("Testing {:.2}MiB bytes of RAM...", ram_bytes as f64 / (1024. * 1024.));
     let start = Instant::now();
     loop {
         let loop_start = Instant::now();
-
-        for test in &tests {
+        let mut test_start: Instant;
+        for test in &test_config {
             // check if we should stop before starting the next test
             if stop_signal.load(Ordering::SeqCst) {
                 break;
             }
-            info!("Running: {}", test.name);
-            unsafe {
-                (test.run)(mem_ptr, size);
+            if test.loops > 1 {
+                info!("Running: {} ({}x)", test.name, test.loops);
+            } else if test.loops == 0 {
+                info!("Skipping: {}", test.name);
+            } else {
+                info!("Running: {}", test.name);
             }
+
+            test_start = Instant::now();
+            let mut bandwidth: f64 = 0.;
+            for i in 1..(test.loops+1) {
+                if stop_signal.load(Ordering::SeqCst) {
+                    break;
+                }
+                unsafe {
+                    (test.run)(mem_ptr, size);
+                }
+                if i+1 >= test.loops {
+                    bandwidth = (test.passes * test.iters * i) as f64 * (size as f64 / (1000. * 1000.)) / test_start.elapsed().as_secs_f64();
+                    debug!("... {}MB/s ...", bandwidth);
+                }
+            }
+            info!("{} completed in {:.2} sec [{:.0}MB/s]", test.name, test_start.elapsed().as_secs_f64(), bandwidth);
         }
 
         let errors = ERRORS.load(Ordering::Relaxed);
@@ -174,11 +199,11 @@ pub fn run_tests(ram_bytes: usize, hide_serials: bool, stop_signal: &AtomicBool)
         let elapsed = loop_start.elapsed();
         let total_time = elapsed.as_secs_f64();
 
-        let total_passes: usize = tests.iter()
-            .map(|t| t.passes * t.iters)
+        let total_passes: usize = test_config.iter()
+            .map(|t| t.passes * t.iters * t.loops)
             .sum();
 
-        let bandwidth = (total_passes as f64 * (size as f64 / (1024.0 * 1024.0))) / total_time;
+        let bandwidth = (total_passes as f64 * (size as f64 / (1000.0 * 1000.0))) / total_time;
         info!("Tests completed in {:.2} sec [{:.0}MB/s]", total_time, bandwidth);
     }
     info!("Test stopped after {:.2}s", start.elapsed().as_secs_f64());
