@@ -25,7 +25,7 @@ pub unsafe fn avx512_tests_init(cpus: usize, errors: *const AtomicU64) {
         _rdrand64_step(&mut r1);
         _rdrand64_step(&mut r2);
     }
-    avx512_xorshift128plus_init(r1, r2, &mut RNG);
+    avx512_xorshift128plus_init(r1, r2, &raw mut RNG);
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
@@ -127,6 +127,7 @@ pub unsafe fn avx512_basic_tests(mem: *mut u8, size: usize) {
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
@@ -202,7 +203,7 @@ pub unsafe fn avx512_march(mem: *mut u8, size: usize) {
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 pub unsafe fn avx512_random_inversions(mem: *mut u8, size: usize) {
     for _ in 0..16 {
-        let pattern = avx512_xorshift128plus(&mut RNG);
+        let pattern = avx512_xorshift128plus(&raw mut RNG);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         let not_pattern = _mm512_xor_epi64(pattern, _mm512_set1_epi8(0xFFu8 as i8));
@@ -400,6 +401,7 @@ pub unsafe fn avx512_moving_saturations_left_8(mem: *mut u8, size: usize) {
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx512_addressing(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
@@ -457,6 +459,7 @@ pub unsafe fn avx512_addressing(mem: *mut u8, size: usize) {
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx512_sgemm(mem: *mut u8, size: usize) {
     // SGEMM test requires OpenBLAS - skip if not available
     let _ = mem;
@@ -536,6 +539,7 @@ pub unsafe fn avx512_checkerboard(mem: *mut u8, size: usize) {
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx512_address_line_test(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;

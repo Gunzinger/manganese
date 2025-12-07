@@ -25,7 +25,7 @@ pub unsafe fn avx2_tests_init(cpus: usize, errors: *const AtomicU64) {
         _rdrand64_step(&mut r1);
         _rdrand64_step(&mut r2);
     }
-    avx_xorshift128plus_init(r1, r2, &mut RNG);
+    avx_xorshift128plus_init(r1, r2, &raw mut RNG);
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -126,6 +126,7 @@ pub unsafe fn avx2_basic_tests(mem: *mut u8, size: usize) {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx2_march(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
@@ -206,7 +207,7 @@ pub unsafe fn avx2_march(mem: *mut u8, size: usize) {
 #[cfg(target_arch = "x86_64")]
 pub unsafe fn avx2_random_inversions(mem: *mut u8, size: usize) {
     for _ in 0..16 {
-        let pattern = avx_xorshift128plus(&mut RNG);
+        let pattern = avx_xorshift128plus(&raw mut RNG);
         set_all_up(mem, size, pattern);
         get_all_up(mem as *const u8, size, pattern);
         let not_pattern = _mm256_xor_si256(pattern, _mm256_set1_epi8(0xFFu8 as i8));
@@ -403,6 +404,7 @@ pub unsafe fn avx2_moving_saturations_left_8(mem: *mut u8, size: usize) {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx2_addressing(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;
@@ -460,6 +462,7 @@ pub unsafe fn avx2_addressing(mem: *mut u8, size: usize) {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx2_sgemm(mem: *mut u8, size: usize) {
     // SGEMM test requires OpenBLAS - skip if not available
     // In Rust, we'd need bindings to OpenBLAS or implement a simple GEMM
@@ -541,6 +544,7 @@ pub unsafe fn avx2_checkerboard(mem: *mut u8, size: usize) {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[allow(dead_code)] // FIXME: segfaults
 pub unsafe fn avx2_address_line_test(mem: *mut u8, size: usize) {
     use rayon::prelude::*;
     let mem_usize = mem as usize;

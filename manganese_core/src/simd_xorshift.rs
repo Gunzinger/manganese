@@ -44,7 +44,7 @@ fn xorshift128plus_jump_onkeys(in1: u64, in2: u64, output1: &mut u64, output2: &
 }
 
 #[cfg(target_arch = "x86_64")]
-pub unsafe fn avx_xorshift128plus_init(key1: u64, key2: u64, key: &mut AvxXorshift128PlusKey) {
+pub unsafe fn avx_xorshift128plus_init(key1: u64, key2: u64, key: *mut AvxXorshift128PlusKey) {
     let mut s0 = [0u64; 4];
     let mut s1 = [0u64; 4];
     
@@ -55,27 +55,27 @@ pub unsafe fn avx_xorshift128plus_init(key1: u64, key2: u64, key: &mut AvxXorshi
     xorshift128plus_jump_onkeys(s0[1], s1[1], &mut s0[2], &mut s1[2]);
     xorshift128plus_jump_onkeys(s0[2], s1[2], &mut s0[3], &mut s1[3]);
     
-    key.part1 = _mm256_loadu_si256(s0.as_ptr() as *const __m256i);
-    key.part2 = _mm256_loadu_si256(s1.as_ptr() as *const __m256i);
+    (*key).part1 = _mm256_loadu_si256(s0.as_ptr() as *const __m256i);
+    (*key).part2 = _mm256_loadu_si256(s1.as_ptr() as *const __m256i);
 }
 
 #[cfg(target_arch = "x86_64")]
-pub unsafe fn avx_xorshift128plus(key: &mut AvxXorshift128PlusKey) -> __m256i {
-    let _s1 = key.part1;
-    let s0 = key.part2;
-    key.part1 = key.part2;
+pub unsafe fn avx_xorshift128plus(key: *mut AvxXorshift128PlusKey) -> __m256i {
+    let _s1 = (*key).part1;
+    let s0 = (*key).part2;
+    (*key).part1 = (*key).part2;
     
-    let s1_new = _mm256_xor_si256(key.part2, _mm256_slli_epi64(key.part2, 23));
-    key.part2 = _mm256_xor_si256(
+    let s1_new = _mm256_xor_si256((*key).part2, _mm256_slli_epi64((*key).part2, 23));
+    (*key).part2 = _mm256_xor_si256(
         _mm256_xor_si256(_mm256_xor_si256(s1_new, s0), _mm256_srli_epi64(s1_new, 18)),
         _mm256_srli_epi64(s0, 5),
     );
     
-    _mm256_add_epi64(key.part2, s0)
+    _mm256_add_epi64((*key).part2, s0)
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_xorshift128plus_init(key1: u64, key2: u64, key: &mut Avx512Xorshift128PlusKey) {
+pub unsafe fn avx512_xorshift128plus_init(key1: u64, key2: u64, key: *mut Avx512Xorshift128PlusKey) {
     let mut s0 = [0u64; 8];
     let mut s1 = [0u64; 8];
     
@@ -89,22 +89,22 @@ pub unsafe fn avx512_xorshift128plus_init(key1: u64, key2: u64, key: &mut Avx512
     xorshift128plus_jump_onkeys(s0[4], s1[4], &mut s0[5], &mut s1[5]);
     xorshift128plus_jump_onkeys(s0[5], s1[5], &mut s0[6], &mut s1[6]);
     xorshift128plus_jump_onkeys(s0[6], s1[6], &mut s0[7], &mut s1[7]);
-    
-    key.part1 = _mm512_loadu_si512(s0.as_ptr() as *const __m512i);
-    key.part2 = _mm512_loadu_si512(s1.as_ptr() as *const __m512i);
+
+    (*key).part1 = _mm512_loadu_si512(s0.as_ptr() as *const __m512i);
+    (*key).part2 = _mm512_loadu_si512(s1.as_ptr() as *const __m512i);
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub unsafe fn avx512_xorshift128plus(key: &mut Avx512Xorshift128PlusKey) -> __m512i {
-    let s0 = key.part2;
-    key.part1 = key.part2;
+pub unsafe fn avx512_xorshift128plus(key: *mut Avx512Xorshift128PlusKey) -> __m512i {
+    let s0 = (*key).part2;
+    (*key).part1 = (*key).part2;
     
-    let s1_new = _mm512_xor_si512(key.part2, _mm512_slli_epi64::<23>(key.part2));
-    key.part2 = _mm512_xor_si512(
+    let s1_new = _mm512_xor_si512((*key).part2, _mm512_slli_epi64::<23>((*key).part2));
+    (*key).part2 = _mm512_xor_si512(
         _mm512_xor_si512(_mm512_xor_si512(s1_new, s0), _mm512_srli_epi64::<18>(s1_new)),
         _mm512_srli_epi64::<5>(s0),
     );
     
-    _mm512_add_epi64(key.part2, s0)
+    _mm512_add_epi64((*key).part2, s0)
 }
 

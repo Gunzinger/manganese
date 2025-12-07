@@ -8,8 +8,8 @@ mod tests_avx512;
 use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
 use std::time::Instant;
 use log::{error, info};
-use crate::hardware::{hardware_cpu_count, hardware_instruction_set, hardware_is_needlessly_disabled, hardware_ram_speed, InstructionSet};
-use crate::platform::{aligned_alloc, aligned_free, getpagesize, mlock, sysinfo};
+pub use crate::hardware::{hardware_cpu_count, hardware_instruction_set, hardware_is_needlessly_disabled, hardware_ram_speed, InstructionSet};
+pub use crate::platform::{aligned_alloc, aligned_free, getpagesize, mlock, sysinfo};
 use crate::tests::tests_init;
 
 pub static ERRORS: AtomicU64 = AtomicU64::new(0);
@@ -20,7 +20,7 @@ pub enum RamSpec {
     Bytes(usize),
 }
 
-pub fn parse_ram_spec(input: &str, free_ram: usize, total_ram: usize) -> Option<RamSpec> {
+pub fn parse_ram_spec(input: &str) -> Option<RamSpec> {
     let input = input.trim().to_uppercase();
 
     if input.ends_with("T") && input.contains('%') { // % of total

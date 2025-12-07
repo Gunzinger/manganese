@@ -829,14 +829,17 @@ impl SystemInfo {
         self.memory_channels().values().filter(|slots| slots.iter().any(|s| s.populated)).count()
     }
 
+    #[allow(dead_code)]
     pub fn total_channels(&self) -> usize {
         self.memory_channels().len()
     }
 
+    #[allow(dead_code)]
     pub fn populated_slots(&self) -> usize {
         self.memory_devices.iter().filter(|m| m.populated).count()
     }
 
+    #[allow(dead_code)]
     pub fn total_slots(&self) -> usize {
         self.memory_devices.len()
     }

@@ -1,16 +1,17 @@
 // src/gui.rs
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
-    Mutex,
+    Arc, Mutex,
 };
 use std::thread;
 
 use eframe::{egui, run_native, NativeOptions};
-use egui::{CentralPanel, ScrollArea, TextEdit, Context, FontDefinitions, FontFamily, ViewportBuilder, Color32};
+use egui::{
+    CentralPanel, Color32, ScrollArea, TextEdit,
+    ViewportBuilder,
+};
 
-use manganese_core::{parse_ram_spec, run_tests, RamSpec};
-use sysinfo::{RefreshKind, System};
+use manganese_core::{parse_ram_spec, run_tests, sysinfo, RamSpec};
 
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
 
@@ -44,15 +45,15 @@ pub fn launch_gui() -> eframe::Result<()> {
             .with_title(format!("Manganese RAM Tester {} 🎉", env!("CARGO_PKG_VERSION")).to_owned())
             .with_inner_size(egui::Vec2::new(600.0, 800.0))
             .with_position(egui::Pos2::new(100.0, 100.0)),
-        multisampling: 0, // reduce GPU load
+        multisampling: 0,     // reduce GPU load
         persist_window: true, // saves window position :)
-        vsync: true, // sync redraw to monitor refresh
+        vsync: true,          // sync redraw to monitor refresh
         ..Default::default()
     };
     run_native(
         format!("Manganese RAM Tester {} 🎉", env!("CARGO_PKG_VERSION")).as_str(),
         native_options,
-        Box::new(|cc|{
+        Box::new(|_cc| {
             let app = Box::new(GuiApp::default());
             //apply_monospace_fonts(&cc.egui_ctx);
             Ok(app)
@@ -104,16 +105,16 @@ impl eframe::App for GuiApp {
             });
 
             if !self.running {
-                if ui.add(egui::Button::new("Start").fill(Color32::DARK_GREEN)).clicked() {
+                if ui
+                    .add(egui::Button::new("Start").fill(Color32::DARK_GREEN))
+                    .clicked()
+                {
                     // compute ram_bytes
-                    let mut sys = System::new_with_specifics(
-                        RefreshKind::everything(),
-                    );
-                    sys.refresh_memory();
-                    let total = sys.total_memory() as usize;
-                    let avail = sys.available_memory() as usize;
+                    let sysinfo = sysinfo();
+                    let total = sysinfo.totalram;
+                    let avail = sysinfo.freeram;
 
-                    let ram_bytes = match parse_ram_spec(&self.ram_input, avail, total) {
+                    let ram_bytes = match parse_ram_spec(&self.ram_input) {
                         Some(RamSpec::Bytes(b)) => b,
                         Some(RamSpec::Percent(fr, true)) => (total as f64 * fr) as usize,
                         Some(RamSpec::Percent(fr, false)) => (avail as f64 * fr) as usize,
@@ -141,7 +142,10 @@ impl eframe::App for GuiApp {
                     }));
                 }
             } else {
-                if ui.add(egui::Button::new("Stop").fill(Color32::DARK_RED)).clicked() {
+                if ui
+                    .add(egui::Button::new("Stop").fill(Color32::DARK_RED))
+                    .clicked()
+                {
                     self.stop_flag.store(true, Ordering::SeqCst);
                     self.status = "Stopping...".to_string();
                     // after stop, we expect run_tests to exit — the thread will drop guard & capture output
@@ -168,9 +172,9 @@ impl eframe::App for GuiApp {
 
             // Reset running status if stop flag is cleared and thread finished
             //if self.running && self.stop_flag.load(Ordering::SeqCst) == false {
-                // Optimistically check: if thread has finished, mark as stopped
-                // For better detection, you could join a handle (requires storing it)
-                // Here, we just allow restart if stop flag was cleared
+            // Optimistically check: if thread has finished, mark as stopped
+            // For better detection, you could join a handle (requires storing it)
+            // Here, we just allow restart if stop flag was cleared
             //    self.running = false;
             //    self.status = "Idle".to_owned();
             //}

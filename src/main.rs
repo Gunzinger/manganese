@@ -10,12 +10,10 @@ use std::env;
 #[cfg(not(feature = "gui"))]
 use std::process::Command;
 
-use sysinfo::{System, RefreshKind};
-
-use manganese_core::{parse_ram_spec, RamSpec, run_tests};
+use manganese_core::{parse_ram_spec, RamSpec, run_tests, sysinfo};
 
 use simplelog::{SimpleLogger, ConfigBuilder};
-use log::{error, info, LevelFilter as LogLevelFilter};
+use log::{error, info, warn, LevelFilter as LogLevelFilter};
 
 fn init_cli_logger() {
     let config = ConfigBuilder::new()
@@ -31,6 +29,7 @@ struct Args {
     ram: Option<String>,
     #[arg(long)]
     hide_serials: bool,
+    #[arg(long)]
     headless: bool,
 }
 
@@ -55,25 +54,23 @@ fn main() {
 
 fn run_cli(args: Args) {
     // Refresh memory using sysinfo 0.37 API
-    let mut sys = System::new_with_specifics(
-        RefreshKind::everything()
-    );
-
-    sys.refresh_memory();
+    let sysinfo = sysinfo();
+    let total = sysinfo.totalram;
+    let avail = sysinfo.freeram;
 
     init_cli_logger();
 
     info!("manganese v{} 🎉", env!("CARGO_PKG_VERSION"));
 
     let ram_input = args.ram.unwrap_or_else(|| {
-        error!("usage: manganese [0%-99%|4GiB|8%t|300MiB]");
-        error!("where the input is an SI size, % of free RAM, or %t of total RAM.");
+        warn!("usage: manganese [0%-99%|4GiB|8%t|300MiB]");
+        warn!("where the input is an SI size, % of free RAM, or %t of total RAM.");
 
         info!(
             "Total RAM: {}MiB, available: {}MiB ({:.2}%)",
-            sys.total_memory() / 1024 / 1024,
-            sys.available_memory() / 1024 / 1024,
-            (sys.available_memory() as f64 / sys.total_memory() as f64) * 100.
+            total / 1024 / 1024,
+            avail / 1024 / 1024,
+            (avail as f64 / total as f64) * 100.
         );
 
         print!("Please enter arguments: ");
@@ -85,14 +82,10 @@ fn run_cli(args: Args) {
     });
 
     // Parse RAM specification
-    let ram_bytes = match parse_ram_spec(
-        &ram_input,
-        sys.available_memory() as usize,
-        sys.total_memory() as usize,
-    ) {
+    let ram_bytes = match parse_ram_spec(&ram_input) {
         Some(RamSpec::Bytes(b)) => b,
-        Some(RamSpec::Percent(frac, true)) => (sys.total_memory() as f64 * frac) as usize,
-        Some(RamSpec::Percent(frac, false)) => (sys.available_memory() as f64 * frac) as usize,
+        Some(RamSpec::Percent(frac, true)) => (total as f64 * frac) as usize,
+        Some(RamSpec::Percent(frac, false)) => (avail as f64 * frac) as usize,
         None => {
             error!("Invalid RAM specification: \"{}\"", ram_input);
             std::process::exit(1);
