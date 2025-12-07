@@ -113,14 +113,14 @@ pub fn avx2_definitions() -> HashMap<TestKind, TestDefinition> {
         }),
         (MovingSaturationsRight16, TestDefinition {
             name: "moving_saturations_right_16",
-            passes: 4,
+            passes: 8,
             iters: 16,
             run: avx2_moving_saturations_right_16,
             loops: 1,
         }),
         (MovingSaturationsLeft8, TestDefinition {
             name: "moving_saturations_left_8",
-            passes: 4,
+            passes: 8,
             iters: 8,
             run: avx2_moving_saturations_left_8,
             loops: 1,
@@ -221,14 +221,14 @@ pub fn avx512_definitions() -> HashMap<TestKind, TestDefinition> {
         }),
         (MovingSaturationsRight16, TestDefinition {
             name: "moving_saturations_right_16",
-            passes: 4,
+            passes: 8,
             iters: 16,
             run: avx512_moving_saturations_right_16,
             loops: 1,
         }),
         (MovingSaturationsLeft8, TestDefinition {
             name: "moving_saturations_left_8",
-            passes: 4,
+            passes: 8,
             iters: 8,
             run: avx512_moving_saturations_left_8,
             loops: 1,
