@@ -59,6 +59,7 @@ jobs:
             - **x86-64-v4 (AVX-512)**: Optimized for Intel Skylake-X (2017+), AMD Zen 4 (2022+) and newer
           draft: false
           prerelease: false
+          make_latest: true
 
   build_binaries:
     needs: create_release
