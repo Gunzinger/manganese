@@ -11,34 +11,20 @@ jobs:
       matrix:
         include:
           - cpu_target: x86-64-v3
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
-          - cpu_target: x86-64-v3
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
           - cpu_target: x86-64-v4
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-          - cpu_target: x86-64-v4
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
           - cpu_target: x86-64-v4-gui
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-            cargo_build_flags: "--features gui"
-            # gui variant
-          - cpu_target: x86-64-v4-gui
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
             cargo_build_flags: "--features gui"
             # gui variant
           #- cpu_target: zen5
-          #  os_target: x86_64-unknown-linux-musl
+          #  os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
           #  rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-          #- cpu_target: zen5
-          #  os_target: x86_64-pc-windows-gnu
-          #  rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-    name: Build ${{ matrix.cpu_target }} - ${{ matrix.os_target }}
+    name: Build ${{ matrix.cpu_target }}
     env:
       RUSTFLAGS: "${{ matrix.rustflags }}"
       CARGO_BUILD_FLAGS: "${{ matrix.cargo_build_flags }}"
@@ -47,54 +33,59 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32
+        run: sudo apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
+          targets: ${{ matrix.os_targets }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Build binary
+      - name: Build binaries
         run: |
-          TARGET="${{ matrix.os_target }}"
-          cargo build --release ${CARGO_BUILD_FLAGS} --target ${TARGET}
+          args=""
+          IFS=',' read -ra TARGETS <<< "${{ matrix.os_targets }}"
+          for t in "${TARGETS[@]}"; do
+            args="$args --target $t"
+          done
+    
+          cargo build --release ${CARGO_BUILD_FLAGS} $args
 
       - name: Prepare artifacts
         run: |
-          TARGET="${{ matrix.os_target }}"
+          TARGETS="${{ matrix.os_targets }}"
           CPU="${{ matrix.cpu_target }}"
           mkdir -p artifacts
           
-          if [[ "${TARGET}" == *"linux"* ]]; then
+          if [[ "${TARGETS}" == *"x86_64-unknown-linux-musl"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              cp target/${TARGET}/release/manganese artifacts/manganese-avx256
+              cp target/x86_64-unknown-linux-musl/release/manganese artifacts/manganese-avx256
               chmod +x artifacts/manganese-avx256
             elif [[ "${CPU}" == "x86-64-v4" ]]; then
-              cp target/${TARGET}/release/manganese artifacts/manganese-avx512
+              cp target/x86_64-unknown-linux-musl/release/manganese artifacts/manganese-avx512
               chmod +x artifacts/manganese-avx512
             else
-              cp target/${TARGET}/release/manganese artifacts/manganese-${CPU}
+              cp target/x86_64-unknown-linux-musl/release/manganese artifacts/manganese-${CPU}
               chmod +x artifacts/manganese-${CPU}
             fi
-          else
+          fi
+          
+          if [[ "${TARGETS}" == *"x86_64-pc-windows-gnu"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
-              cp target/${TARGET}/release/manganese.exe artifacts/manganese-avx256.exe
+              cp target/x86_64-pc-windows-gnu/release/manganese.exe artifacts/manganese-avx256.exe
             elif [[ "${CPU}" == "x86-64-v4" ]]; then
-              cp target/${TARGET}/release/manganese.exe artifacts/manganese-avx512.exe
+              cp target/x86_64-pc-windows-gnu/release/manganese.exe artifacts/manganese-avx512.exe
             else
-              cp target/${TARGET}/release/manganese.exe artifacts/manganese-${CPU}.exe
+              cp target/x86_64-pc-windows-gnu/release/manganese.exe artifacts/manganese-${CPU}.exe
             fi
           fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: manganese-${{ matrix.os_target }}-${{ matrix.cpu_target }}
+          name: manganese-${{ matrix.cpu_target }}
           path: artifacts/*
           retention-days: 7
