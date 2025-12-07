@@ -81,7 +81,8 @@ while IFS= read -r bin; do
   if [[ "$bin" == *"-avx256" ]]; then
     BASE_BIN="$(basename "$bin")"
   fi
-done < <(find "$BINS_DIR" -type f -name "manganese-*")
+done < <(find "$BINS_DIR" -type f -name "manganese-*" ! -name "*.exe" ! -name "*.sha256")
+# ignore windows builds and checksums
 
 # AUTOSTART ENTRY POINT
 mkdir -p initrd_unpacked/home/tc

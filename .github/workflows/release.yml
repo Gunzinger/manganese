@@ -67,46 +67,26 @@ jobs:
       matrix:
         include:
           - cpu_target: x86-64-v3
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
-          - cpu_target: x86-64-v3
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+avx2,+fma"
           - cpu_target: x86-64-v4
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-          - cpu_target: x86-64-v4
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
           - cpu_target: x86-64-v4-gui
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-            cargo_build_flags: "--features gui"
-            # gui variant
-          - cpu_target: x86-64-v4-gui
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=x86-64-v4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
             cargo_build_flags: "--features gui"
             # gui variant
           - cpu_target: zen3
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=znver3 -C target-feature=+avx2,+fma"
-          - cpu_target: zen3
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=znver3 -C target-feature=+avx2,+fma"
           - cpu_target: zen4
-            os_target: x86_64-unknown-linux-musl
-            rustflags: "-C target-cpu=znver4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-          - cpu_target: zen4
-            os_target: x86_64-pc-windows-gnu
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=znver4 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
           - cpu_target: zen5
-            os_target: x86_64-unknown-linux-musl
+            os_targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
             rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-          - cpu_target: zen5
-            os_target: x86_64-pc-windows-gnu
-            rustflags: "-C target-cpu=znver5 -C target-feature=+avx2,+fma,+avx512f,+avx512bw"
-    name: Build ${{ matrix.os_target }} (${{ matrix.cpu_target }})
+    name: Build ${{ matrix.cpu_target }}
     env:
       RUSTFLAGS: "${{ matrix.rustflags }}"
       CARGO_BUILD_FLAGS: "${{ matrix.cargo_build_flags }}"
@@ -120,7 +100,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
           sudo apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32 upx-ucl
 
       - name: Install Rust toolchain
@@ -132,25 +111,33 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Update Cargo.toml version
+      - name: Set Cargo.toml version
+        shell: bash
         run: |
-          sed -i "s/^version = .*/version = \"${VERSION}\"/" Cargo.toml
-          head -n 10 Cargo.toml
+          sed -i "s/0\\.0\\.0-git/${VERSION}/" Cargo.toml
+          head -n 5 Cargo.toml
+          sed -i "s/0\\.0\\.0-git/${VERSION}/" Cargo.lock
+          grep -i -C 5 "manganese" Cargo.lock
 
       - name: Build binary
         run: |
-          TARGET="${{ matrix.os_target }}"
-          cargo build --release ${CARGO_BUILD_FLAGS} --target ${TARGET}
+          args=""
+          IFS=',' read -ra TARGETS <<< "${{ matrix.os_targets }}"
+          for t in "${TARGETS[@]}"; do
+            args="$args --target $t"
+          done
+          
+          cargo build --release ${CARGO_BUILD_FLAGS} $args
 
       - name: Prepare release binaries
         shell: bash
         run: |
-          TARGET="${{ matrix.os_target }}"
+          TARGETS="${{ matrix.os_targets }}"
           CPU="${{ matrix.cpu_target }}"
           VERSION="${{ needs.create_release.outputs.version }}"
           mkdir -p current_release
           
-          if [[ "${TARGET}" == *"linux"* ]]; then
+          if [[ "${TARGETS}" == *"x86_64-unknown-linux-musl"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
               BIN_NAME="manganese-v${VERSION}-avx256"
             elif [[ "${CPU}" == "x86-64-v4" ]]; then
@@ -158,12 +145,14 @@ jobs:
             else
               BIN_NAME="manganese-v${VERSION}-${CPU}"
             fi
-            cp target/${TARGET}/release/manganese current_release/${BIN_NAME}
+            cp target/x86_64-unknown-linux-musl/release/manganese current_release/${BIN_NAME}
             chmod +x current_release/${BIN_NAME}
             strip current_release/${BIN_NAME}
             upx --best --brute current_release/${BIN_NAME}
             shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
-          else
+          fi
+          
+          if [[ "${TARGETS}" == *"x86_64-pc-windows-gnu"* ]]; then
             if [[ "${CPU}" == "x86-64-v3" ]]; then
               BIN_NAME="manganese-v${VERSION}-avx256.exe"
             elif [[ "${CPU}" == "x86-64-v4" ]]; then
@@ -171,7 +160,7 @@ jobs:
             else
               BIN_NAME="manganese-v${VERSION}-${CPU}.exe"
             fi
-            cp target/${TARGET}/release/manganese.exe current_release/${BIN_NAME}
+            cp target/x86_64-pc-windows-gnu/release/manganese.exe current_release/${BIN_NAME}
             x86_64-w64-mingw32-strip current_release/${BIN_NAME}
             upx --best --brute current_release/${BIN_NAME}
             shasum -a 256 current_release/${BIN_NAME} > current_release/${BIN_NAME}.sha256
@@ -181,7 +170,8 @@ jobs:
           echo "BIN_NAME=${BIN_NAME}" >> $GITHUB_ENV
 
       - name: Upload linux binary as artifact
-        if: matrix.os_target == 'x86_64-unknown-linux-musl'
+        if: matrix.cpu_target == 'x86-64-v3' || matrix.cpu_target == 'x86-64-v4'
+        # upload both avx256 and 512 binaries; iso build process with gather and include these
         uses: actions/upload-artifact@v5
         with:
           name: linux-bin-${{ matrix.cpu_target }}
@@ -218,8 +208,7 @@ jobs:
 
       - name: Install dependencies for ISO remastering
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y xorriso isolinux syslinux-utils cpio gzip
+          sudo apt-get install --yes --no-install-recommends xorriso isolinux syslinux-utils cpio gzip
 
       - name: Build custom TinyCore ISO
         run: |
